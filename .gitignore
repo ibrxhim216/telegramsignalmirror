@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+
+# Environment variables and secrets
+.env
+*.session
+*.session-journal
+api_creds.pdf
+
+# Build outputs
+dist/
+release/
+build/
+*.exe
+*.dmg
+*.AppImage
+
+# MT4/MT5 files
+*.set
+mt4-ea/
+mt4-mt5/
+
+# Development files
+dev.log
+*.log
+our_discussion.txt
+
+# Screenshots and images (optional - remove if you want to include them)
+*.jpg
+*.png
+ea.jpg
+Screenshot*.jpg
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+NUL
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporary files
+*.tmp
+*.temp
