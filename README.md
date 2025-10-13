@@ -1,4 +1,9 @@
-# Telegram Signal Copier
+# Telegram Signal Mirror
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/ibrxhim216/telegramsignalmirror)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/ibrxhim216/telegramsignalmirror)
 
 A powerful desktop application that automatically copies trading signals from Telegram channels to MT4/MT5/cTrader trading platforms with AI-powered signal parsing and advanced risk management.
 
@@ -56,12 +61,17 @@ A powerful desktop application that automatically copies trading signals from Te
    - Go to https://my.telegram.org/apps
    - Create a new application
    - Copy your `api_id` and `api_hash`
-   - Open `electron/services/telegram.ts`
-   - Replace the values:
-     ```typescript
-     const API_ID = your_api_id_here
-     const API_HASH = 'your_api_hash_here'
+   - Copy `.env.example` to `.env`:
+     ```bash
+     cp .env.example .env
      ```
+   - Edit `.env` and add your credentials:
+     ```
+     TELEGRAM_API_ID=your_api_id_here
+     TELEGRAM_API_HASH=your_api_hash_here
+     WS_PORT=8080
+     ```
+   - **Important**: Never commit the `.env` file to git (it's already in `.gitignore`)
 
 4. **Run in development mode**
    ```bash
@@ -218,15 +228,21 @@ telegram-signal-copier/
 
 ## Roadmap
 
-- [ ] Image-based signal recognition (OCR)
-- [ ] cTrader, DXTrade, TradeLocker integration
-- [ ] Advanced risk management (TSC Protector)
-- [ ] Trailing stop loss
+### Completed ✅
+- [x] Advanced risk management (TSC Protector)
+- [x] Multi-account support
+- [x] Trailing stop loss (handled by EA)
+- [x] Multi-TP management
+- [x] License system with feature gating
+
+### Planned 🚧
+- [ ] Image-based signal recognition (Vision AI / OCR)
+- [ ] cTrader, DXTrade, TradeLocker EA integration
 - [ ] Reverse trading mode
-- [ ] Multi-account support
-- [ ] Performance analytics
-- [ ] Cloud sync
-- [ ] Mobile app
+- [ ] Performance analytics dashboard
+- [ ] Cloud sync for settings
+- [ ] Mobile companion app
+- [ ] Subscription management portal (web)
 
 ## License
 

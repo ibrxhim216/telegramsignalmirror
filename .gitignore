@@ -25,11 +25,16 @@ dev.log
 *.log
 our_discussion.txt
 
-# Screenshots and images (optional - remove if you want to include them)
+# Screenshots and images (excluded by default for privacy)
 *.jpg
 *.png
 ea.jpg
 Screenshot*.jpg
+
+# Except documentation images (allows images in /docs folder)
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.gif
 
 # OS files
 .DS_Store
