@@ -1,24 +1,35 @@
 import { useEffect } from 'react'
 import Dashboard from './components/Dashboard'
 import TelegramAuth from './components/TelegramAuth'
+import Login from './components/Login'
 import { useAppStore } from './store/appStore'
 
 function App() {
-  const { isTelegramConnected, setTelegramConnected } = useAppStore()
+  const { isLoggedIn, isTelegramConnected, setLoggedIn, setTelegramConnected } = useAppStore()
 
   useEffect(() => {
-    console.log('App mounted, checking Telegram connection...')
+    console.log('App mounted, checking authentication...')
 
-    // Check if already connected (handles auto-connect on startup)
-    const checkConnection = async () => {
-      const result = await window.electron.telegram.isConnected()
-      console.log('Connection check result:', result)
-      if (result.success && result.isConnected) {
-        console.log('Already connected to Telegram')
-        setTelegramConnected(true)
+    // Check login status first
+    const checkAuth = async () => {
+      const loginResult = await window.electron.license.isLoggedIn()
+      console.log('Login check result:', loginResult)
+      if (loginResult.success && loginResult.isLoggedIn) {
+        console.log('User is logged in')
+        setLoggedIn(true)
+
+        // Then check Telegram connection
+        const telegramResult = await window.electron.telegram.isConnected()
+        console.log('Telegram connection check result:', telegramResult)
+        if (telegramResult.success && telegramResult.isConnected) {
+          console.log('Already connected to Telegram')
+          setTelegramConnected(true)
+        }
+      } else {
+        console.log('User is not logged in')
       }
     }
-    checkConnection()
+    checkAuth()
 
     // Listen for Telegram events with cleanup (defensive for backward compatibility)
     const cleanupConnected = window.electron.telegram.onConnected(() => {
@@ -35,13 +46,32 @@ function App() {
       if (typeof cleanupConnected === 'function') cleanupConnected()
       if (typeof cleanupError === 'function') cleanupError()
     }
-  }, [setTelegramConnected])
+  }, [setLoggedIn, setTelegramConnected])
 
-  console.log('Rendering App, isTelegramConnected:', isTelegramConnected)
+  console.log('Rendering App, isLoggedIn:', isLoggedIn, 'isTelegramConnected:', isTelegramConnected)
 
+  // Show login screen if not logged in
+  if (!isLoggedIn) {
+    return (
+      <div className="h-screen bg-gray-900 text-white">
+        <Login />
+      </div>
+    )
+  }
+
+  // Show Telegram auth if logged in but not connected
+  if (!isTelegramConnected) {
+    return (
+      <div className="h-screen bg-gray-900 text-white">
+        <TelegramAuth />
+      </div>
+    )
+  }
+
+  // Show dashboard if fully authenticated
   return (
     <div className="h-screen bg-gray-900 text-white">
-      {!isTelegramConnected ? <TelegramAuth /> : <Dashboard />}
+      <Dashboard />
     </div>
   )
 }

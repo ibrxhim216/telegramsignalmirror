@@ -1,10 +1,22 @@
-import { Radio, LogOut, Settings } from 'lucide-react'
+import { Radio, LogOut, Settings, UserX } from 'lucide-react'
+import { useAppStore } from '../store/appStore'
 
 export default function Header() {
+  const { setLoggedIn, setTelegramConnected } = useAppStore()
+
   const handleDisconnect = async () => {
     if (confirm('Are you sure you want to disconnect from Telegram?')) {
       await window.electron.telegram.disconnect()
       window.location.reload()
+    }
+  }
+
+  const handleLogout = async () => {
+    if (confirm('Are you sure you want to log out? This will disconnect you from both your account and Telegram.')) {
+      await window.electron.telegram.disconnect()
+      await window.electron.license.logout()
+      setLoggedIn(false)
+      setTelegramConnected(false)
     }
   }
 
@@ -35,9 +47,17 @@ export default function Header() {
           <button
             onClick={handleDisconnect}
             className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-            title="Disconnect"
+            title="Disconnect from Telegram"
           >
             <LogOut className="text-gray-400" size={20} />
+          </button>
+
+          <button
+            onClick={handleLogout}
+            className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+            title="Log out from account"
+          >
+            <UserX className="text-gray-400" size={20} />
           </button>
         </div>
       </div>

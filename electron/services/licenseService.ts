@@ -199,58 +199,76 @@ export class LicenseService extends EventEmitter {
   }
 
   /**
-   * Activate license with key
+   * Login with email and password (authenticate with web API)
    */
-  async activateLicense(request: LicenseActivationRequest): Promise<LicenseActivationResponse> {
+  async login(email: string, password: string): Promise<{success: boolean, error?: string, token?: string}> {
     try {
-      // Validate format
-      if (!validateLicenseKeyFormat(request.licenseKey)) {
+      const API_URL = process.env.VITE_API_URL || 'https://telegramsignalmirror.com'
+
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          machineId: this.machineId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!data.success) {
         return {
           success: false,
-          error: 'Invalid license key format',
+          error: data.error || 'Login failed',
         }
       }
 
-      // TODO: Call backend API to validate license key
-      // For now, simulate validation
-      const tier = this.extractTierFromKey(request.licenseKey)
+      // Store JWT token
+      this.saveToken(data.token)
 
-      if (!tier) {
-        return {
-          success: false,
-          error: 'Invalid license key',
-        }
-      }
-
-      // Create license
+      // Convert web API subscription to local license format
       const now = new Date()
-      const isLifetime = tier === 'advance'
-      const expiresAt = isLifetime
-        ? null
-        : new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      const subscription = data.user.subscription
+
+      // Map tier names (basic/pro/lifetime -> starter/pro/advance)
+      let tier: LicenseTier = 'trial'
+      if (subscription.tier === 'basic') tier = 'starter'
+      else if (subscription.tier === 'pro') tier = 'pro'
+      else if (subscription.tier === 'lifetime') tier = 'advance'
 
       const license: License = {
-        licenseKey: request.licenseKey,
+        licenseKey: data.token, // Use JWT token as license key
         tier,
-        status: 'active',
+        status: subscription.status === 'active' || subscription.status === 'trial' ? 'active' : 'expired',
 
-        userId: `user_${Date.now()}`,
-        email: request.email,
-        telegramPhone: request.telegramPhone,
+        userId: data.user.id,
+        email: data.user.email,
+        telegramPhone: '',
 
-        isLifetime,
-        isTrial: false,
+        isLifetime: subscription.isLifetime,
+        isTrial: subscription.status === 'trial',
+        trialStartedAt: subscription.status === 'trial' ? now.toISOString() : undefined,
+        trialEndsAt: subscription.trialEndsAt || undefined,
 
         activatedAt: now.toISOString(),
-        expiresAt: expiresAt?.toISOString() || '',
+        expiresAt: subscription.currentPeriodEnd || '',
         lastValidated: now.toISOString(),
 
-        limits: LICENSE_TIERS[tier],
+        limits: {
+          maxChannels: subscription.maxChannels,
+          maxAccounts: subscription.maxAccounts,
+          tscProtector: tier !== 'trial' && tier !== 'starter',
+          multiTP: tier !== 'trial' && tier !== 'starter',
+          visionAI: tier === 'pro' || tier === 'advance',
+        },
 
         currentAccounts: 0,
         currentChannels: 0,
 
-        machineId: request.machineId,
+        machineId: this.machineId,
         allowedMachines: tier === 'advance' ? 3 : 1,
 
         createdAt: now.toISOString(),
@@ -258,13 +276,32 @@ export class LicenseService extends EventEmitter {
       }
 
       this.saveLicense(license)
-      logger.info(`License activated: ${tier}`)
+      logger.info(`Logged in successfully: ${tier}`)
 
       this.emit('licenseActivated', license)
 
       return {
         success: true,
-        license,
+        token: data.token,
+      }
+    } catch (error: any) {
+      logger.error('Login failed:', error)
+      return {
+        success: false,
+        error: error.message || 'Login failed',
+      }
+    }
+  }
+
+  /**
+   * Activate license with key (legacy - now uses login)
+   */
+  async activateLicense(request: LicenseActivationRequest): Promise<LicenseActivationResponse> {
+    try {
+      // Redirect to login flow instead
+      return {
+        success: false,
+        error: 'Please use the login screen to activate your license',
       }
     } catch (error: any) {
       logger.error('License activation failed:', error)
@@ -289,9 +326,154 @@ export class LicenseService extends EventEmitter {
   }
 
   /**
-   * Validate current license
+   * Save JWT token to database
    */
-  validateLicense(): LicenseValidationResult {
+  private saveToken(token: string): boolean {
+    try {
+      const db = getDatabase()
+      db.run(`
+        INSERT OR REPLACE INTO settings (key, value, updated_at)
+        VALUES ('jwt_token', ?, CURRENT_TIMESTAMP)
+      `, [token])
+
+      saveDatabase()
+      logger.info('JWT token saved')
+      return true
+    } catch (error) {
+      logger.error('Failed to save JWT token:', error)
+      return false
+    }
+  }
+
+  /**
+   * Load JWT token from database
+   */
+  private loadToken(): string | null {
+    try {
+      const db = getDatabase()
+      const rows = db.exec(`
+        SELECT value FROM settings WHERE key = 'jwt_token'
+      `)
+
+      if (rows.length > 0 && rows[0].values.length > 0) {
+        return rows[0].values[0][0] as string
+      }
+      return null
+    } catch (error) {
+      logger.error('Failed to load JWT token:', error)
+      return null
+    }
+  }
+
+  /**
+   * Validate current license with web API
+   */
+  async validateLicenseWithAPI(): Promise<LicenseValidationResult> {
+    try {
+      const token = this.loadToken()
+      if (!token) {
+        return {
+          isValid: false,
+          license: null,
+          reason: 'Not logged in - please log in first',
+        }
+      }
+
+      const API_URL = process.env.VITE_API_URL || 'https://telegramsignalmirror.com'
+
+      const response = await fetch(`${API_URL}/api/auth/validate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          machineId: this.machineId,
+          deviceName: `${require('os').platform()} - ${require('os').hostname()}`,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!data.success || !data.isValid) {
+        // Clear invalid token
+        this.clearToken()
+
+        return {
+          isValid: false,
+          license: null,
+          reason: data.reason || data.error || 'License validation failed',
+          shouldRenew: true,
+        }
+      }
+
+      // Update local license with server data
+      const subscription = data.user.subscription
+      const now = new Date()
+
+      // Map tier names
+      let tier: LicenseTier = 'trial'
+      if (subscription.tier === 'basic') tier = 'starter'
+      else if (subscription.tier === 'pro') tier = 'pro'
+      else if (subscription.tier === 'lifetime') tier = 'advance'
+
+      const license: License = {
+        licenseKey: token,
+        tier,
+        status: subscription.status === 'active' || subscription.status === 'trial' ? 'active' : 'expired',
+
+        userId: data.user.id,
+        email: data.user.email,
+        telegramPhone: '',
+
+        isLifetime: subscription.isLifetime,
+        isTrial: subscription.status === 'trial',
+        trialEndsAt: subscription.trialEndsAt || undefined,
+
+        activatedAt: this.currentLicense?.activatedAt || now.toISOString(),
+        expiresAt: subscription.currentPeriodEnd || '',
+        lastValidated: now.toISOString(),
+
+        limits: {
+          maxChannels: subscription.maxChannels,
+          maxAccounts: subscription.maxAccounts,
+          tscProtector: tier !== 'trial' && tier !== 'starter',
+          multiTP: tier !== 'trial' && tier !== 'starter',
+          visionAI: tier === 'pro' || tier === 'advance',
+        },
+
+        currentAccounts: this.currentLicense?.currentAccounts || 0,
+        currentChannels: this.currentLicense?.currentChannels || 0,
+
+        machineId: this.machineId,
+        allowedMachines: tier === 'advance' ? 3 : 1,
+
+        createdAt: this.currentLicense?.createdAt || now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
+
+      this.saveLicense(license)
+
+      const daysRemaining = getDaysUntilExpiration(license)
+
+      return {
+        isValid: true,
+        license,
+        daysRemaining,
+        shouldRenew: daysRemaining <= 7 && !license.isLifetime,
+      }
+    } catch (error: any) {
+      logger.error('License validation with API failed:', error)
+
+      // Fall back to local validation
+      return this.validateLicenseLocally()
+    }
+  }
+
+  /**
+   * Validate current license locally (fallback)
+   */
+  private validateLicenseLocally(): LicenseValidationResult {
     if (!this.currentLicense) {
       return {
         isValid: false,
@@ -352,6 +534,52 @@ export class LicenseService extends EventEmitter {
       license: this.currentLicense,
       daysRemaining,
       shouldRenew: daysRemaining <= 7 && !this.currentLicense.isLifetime,
+    }
+  }
+
+  /**
+   * Validate current license (legacy method - uses local validation)
+   */
+  validateLicense(): LicenseValidationResult {
+    return this.validateLicenseLocally()
+  }
+
+  /**
+   * Clear JWT token
+   */
+  private clearToken(): boolean {
+    try {
+      const db = getDatabase()
+      db.run(`DELETE FROM settings WHERE key = 'jwt_token'`)
+      saveDatabase()
+      logger.info('JWT token cleared')
+      return true
+    } catch (error) {
+      logger.error('Failed to clear JWT token:', error)
+      return false
+    }
+  }
+
+  /**
+   * Check if user is logged in
+   */
+  isLoggedIn(): boolean {
+    const token = this.loadToken()
+    return token !== null
+  }
+
+  /**
+   * Logout (clear token and reset to trial)
+   */
+  logout(): boolean {
+    try {
+      this.clearToken()
+      this.createTrialLicense()
+      logger.info('User logged out')
+      return true
+    } catch (error: any) {
+      logger.error('Logout failed:', error)
+      return false
     }
   }
 
@@ -517,21 +745,52 @@ export class LicenseService extends EventEmitter {
    * Start validation loop (check every hour)
    */
   private startValidationLoop() {
-    // Validate immediately
-    this.validateLicense()
+    // Validate with API immediately if logged in
+    if (this.isLoggedIn()) {
+      this.validateLicenseWithAPI().then(result => {
+        if (!result.isValid) {
+          logger.warn('License validation failed:', result.reason)
+          this.emit('licenseInvalid', result)
+        }
+
+        if (result.shouldRenew) {
+          logger.warn(`License expiring soon: ${result.daysRemaining} days remaining`)
+          this.emit('licenseExpiringSoon', result)
+        }
+      })
+    } else {
+      // Just validate locally if not logged in
+      this.validateLicense()
+    }
 
     // Then every hour
-    this.validationInterval = setInterval(() => {
-      const result = this.validateLicense()
+    this.validationInterval = setInterval(async () => {
+      if (this.isLoggedIn()) {
+        // Use API validation if logged in
+        const result = await this.validateLicenseWithAPI()
 
-      if (!result.isValid) {
-        logger.warn('License validation failed:', result.reason)
-        this.emit('licenseInvalid', result)
-      }
+        if (!result.isValid) {
+          logger.warn('License validation failed:', result.reason)
+          this.emit('licenseInvalid', result)
+        }
 
-      if (result.shouldRenew) {
-        logger.warn(`License expiring soon: ${result.daysRemaining} days remaining`)
-        this.emit('licenseExpiringSoon', result)
+        if (result.shouldRenew) {
+          logger.warn(`License expiring soon: ${result.daysRemaining} days remaining`)
+          this.emit('licenseExpiringSoon', result)
+        }
+      } else {
+        // Fall back to local validation
+        const result = this.validateLicense()
+
+        if (!result.isValid) {
+          logger.warn('License validation failed:', result.reason)
+          this.emit('licenseInvalid', result)
+        }
+
+        if (result.shouldRenew) {
+          logger.warn(`License expiring soon: ${result.daysRemaining} days remaining`)
+          this.emit('licenseExpiringSoon', result)
+        }
       }
     }, 60 * 60 * 1000) // Every hour
   }

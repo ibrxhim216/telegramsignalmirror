@@ -66,6 +66,10 @@ contextBridge.exposeInMainWorld('electron', {
     canAddChannel: () => ipcRenderer.invoke('license:canAddChannel'),
     hasFeature: (feature) => ipcRenderer.invoke('license:hasFeature', feature),
     getMachineId: () => ipcRenderer.invoke('license:getMachineId'),
+    login: (email, password) => ipcRenderer.invoke('license:login', email, password),
+    isLoggedIn: () => ipcRenderer.invoke('license:isLoggedIn'),
+    logout: () => ipcRenderer.invoke('license:logout'),
+    validateWithAPI: () => ipcRenderer.invoke('license:validateWithAPI'),
 
     // Event listeners
     onUpdated: (callback) => {

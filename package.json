@@ -2,7 +2,7 @@
   "name": "telegram-signal-copier",
   "version": "1.0.0",
   "description": "Desktop application that copies trading signals from Telegram to MT4/MT5/cTrader",
-  "main": "electron/index.js",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
@@ -89,7 +89,7 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "portable"
       ],
       "icon": "assets/icon.ico"
     },

@@ -667,6 +667,46 @@ ipcMain.handle('license:getMachineId', async () => {
   }
 })
 
+ipcMain.handle('license:login', async (_, email: string, password: string) => {
+  try {
+    const result = await licenseService.login(email, password)
+    return result
+  } catch (error: any) {
+    logger.error('Login error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('license:isLoggedIn', async () => {
+  try {
+    const isLoggedIn = licenseService.isLoggedIn()
+    return { success: true, isLoggedIn }
+  } catch (error: any) {
+    logger.error('Check logged in error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('license:logout', async () => {
+  try {
+    const success = licenseService.logout()
+    return { success }
+  } catch (error: any) {
+    logger.error('Logout error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('license:validateWithAPI', async () => {
+  try {
+    const result = await licenseService.validateLicenseWithAPI()
+    return { success: true, ...result }
+  } catch (error: any) {
+    logger.error('Validate with API error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 // Vision AI Handlers
 ipcMain.handle('visionAI:getSettings', async () => {
   try {

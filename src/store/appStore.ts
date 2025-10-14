@@ -17,10 +17,12 @@ interface Signal {
 }
 
 interface AppState {
+  isLoggedIn: boolean
   isTelegramConnected: boolean
   channels: Channel[]
   activeChannels: number[]
   signals: Signal[]
+  setLoggedIn: (loggedIn: boolean) => void
   setTelegramConnected: (connected: boolean) => void
   setChannels: (channels: Channel[]) => void
   setActiveChannels: (channelIds: number[]) => void
@@ -29,10 +31,13 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
+  isLoggedIn: false,
   isTelegramConnected: false,
   channels: [],
   activeChannels: [],
   signals: [],
+
+  setLoggedIn: (loggedIn) => set({ isLoggedIn: loggedIn }),
 
   setTelegramConnected: (connected) => set({ isTelegramConnected: connected }),
 

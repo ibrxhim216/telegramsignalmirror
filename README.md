@@ -94,7 +94,7 @@ A powerful desktop application that automatically copies trading signals from Te
 
 ### Expert Advisor Installation
 
-1. Copy the EA file from `/mt4-mt5/TelegramSignalCopier.mq4` (or `.mq5`) to your MT4/MT5 `Experts` folder
+1. Copy the EA file from `/mt4-mt5/TelegramSignalMirror.mq4` (or `.mq5`) to your MT4/MT5 `Experts` folder
 2. Restart MT4/MT5 or refresh the Navigator panel
 3. Drag the EA onto any chart
 4. Configure the EA settings:
@@ -187,8 +187,8 @@ telegram-signal-copier/
 │   ├── App.tsx          # Main app component
 │   └── main.tsx         # React entry point
 ├── mt4-mt5/             # MT4/MT5 Expert Advisors
-│   ├── TelegramSignalCopier.mq4
-│   └── TelegramSignalCopier.mq5
+│   ├── TelegramSignalMirror.mq4
+│   └── TelegramSignalMirror.mq5
 └── package.json
 ```
 

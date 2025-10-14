@@ -106,6 +106,10 @@ contextBridge.exposeInMainWorld('electron', {
     canAddChannel: () => ipcRenderer.invoke('license:canAddChannel'),
     hasFeature: (feature: string) => ipcRenderer.invoke('license:hasFeature', feature),
     getMachineId: () => ipcRenderer.invoke('license:getMachineId'),
+    login: (email: string, password: string) => ipcRenderer.invoke('license:login', email, password),
+    isLoggedIn: () => ipcRenderer.invoke('license:isLoggedIn'),
+    logout: () => ipcRenderer.invoke('license:logout'),
+    validateWithAPI: () => ipcRenderer.invoke('license:validateWithAPI'),
 
     // Event listeners (singleton pattern)
     onUpdated: (callback: (license: any) => void) => {
@@ -210,6 +214,10 @@ declare global {
         canAddChannel: () => Promise<{ success: boolean; canPerformAction?: boolean; reason?: string; error?: string }>
         hasFeature: (feature: string) => Promise<{ success: boolean; hasFeature?: boolean; error?: string }>
         getMachineId: () => Promise<{ success: boolean; machineId?: string; error?: string }>
+        login: (email: string, password: string) => Promise<{ success: boolean; token?: string; error?: string }>
+        isLoggedIn: () => Promise<{ success: boolean; isLoggedIn?: boolean; error?: string }>
+        logout: () => Promise<{ success: boolean; error?: string }>
+        validateWithAPI: () => Promise<{ success: boolean; isValid?: boolean; license?: any; reason?: string; error?: string }>
         onUpdated: (callback: (license: any) => void) => () => void
         onActivated: (callback: (license: any) => void) => () => void
         onTrialStarted: (callback: (license: any) => void) => () => void
