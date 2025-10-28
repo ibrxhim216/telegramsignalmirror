@@ -6,6 +6,7 @@ import { TelegramService } from './services/telegram'
 import { WebSocketServer } from './services/websocket'
 import { SignalParser } from './services/signalParser'
 import { ApiServer } from './services/apiServer'
+import { CloudSyncService } from './services/cloudSyncService'
 import { channelConfigService } from './services/channelConfigService'
 import { tradeModificationHandler } from './services/tradeModificationHandler'
 import { signalModificationService } from './services/signalModificationService'
@@ -21,8 +22,36 @@ let telegramService: TelegramService | null = null
 let wsServer: WebSocketServer | null = null
 let apiServer: ApiServer | null = null
 let signalParser: SignalParser | null = null
+let cloudSync: CloudSyncService | null = null
 
 const isDev = process.env.NODE_ENV === 'development'
+
+/**
+ * Helper function to start or restart trade sync
+ */
+function startTradeSyncIfConfigured() {
+  if (!cloudSync) return
+
+  const authToken = licenseService.getAuthToken()
+  const primaryAccount = accountService.getPrimaryAccount()
+
+  if (authToken && primaryAccount) {
+    // Stop existing sync if running
+    cloudSync.stopTradeSync()
+
+    // Set configuration
+    cloudSync.setAuthToken(authToken)
+    cloudSync.setAccountNumber(primaryAccount.account_number)
+
+    // Start sync
+    cloudSync.startTradeSync(30000)
+    logger.info('[Cloud Sync] Trade synchronization (re)started')
+  } else {
+    // Stop sync if not fully configured
+    cloudSync.stopTradeSync()
+    logger.info('[Cloud Sync] Trade synchronization stopped - missing auth token or account')
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -75,6 +104,18 @@ app.whenReady().then(async () => {
   wsServer = new WebSocketServer(8080)
   apiServer = new ApiServer(3737)
 
+  // Initialize cloud sync service
+  cloudSync = new CloudSyncService({
+    enabled: true, // Enable by default, can be configured later
+    apiUrl: process.env.CLOUD_API_URL || 'https://telegramsignalmirror.com'
+  })
+
+  // Start trade sync if configured
+  startTradeSyncIfConfigured()
+
+  // Configure API server with cloud sync
+  apiServer.setCloudSyncService(cloudSync)
+
   // Start API server for MT4/MT5 EA communication
   await apiServer.start()
 
@@ -87,7 +128,7 @@ app.whenReady().then(async () => {
     mainWindow?.webContents.send('telegram:connected')
   })
 
-  telegramService.on('signalReceived', (signal) => {
+  telegramService.on('signalReceived', async (signal) => {
     mainWindow?.webContents.send('signal:received', signal)
 
     // Check if it's an update command
@@ -152,21 +193,21 @@ app.whenReady().then(async () => {
 
             // Add each split order to API queue
             for (const splitOrder of splitOrders) {
-              apiServer?.addSignal({
+              await apiServer?.addSignal({
                 ...signal.parsed,
                 takeProfit: splitOrder.takeProfit,
                 takeProfits: [splitOrder.takeProfit],
                 comment: splitOrder.comment,
                 groupId: splitOrder.groupId,
-              } as any, signal.config, signal.id, signal.channelId)
+              } as any, signal.config, signal.id, signal.channelId, signal.channelName)
             }
           } else {
             // Fallback to single order
-            apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId)
+            await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName)
           }
         } else {
           // Single TP or multi-TP disabled - send as-is
-          apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId)
+          await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName)
         }
       }
     }
@@ -380,6 +421,9 @@ app.on('before-quit', async () => {
   }
   if (apiServer) {
     await apiServer.stop()
+  }
+  if (cloudSync) {
+    cloudSync.stopTradeSync()
   }
 })
 
@@ -670,6 +714,12 @@ ipcMain.handle('license:getMachineId', async () => {
 ipcMain.handle('license:login', async (_, email: string, password: string) => {
   try {
     const result = await licenseService.login(email, password)
+
+    // If login successful, restart trade sync with new auth token
+    if (result.success) {
+      startTradeSyncIfConfigured()
+    }
+
     return result
   } catch (error: any) {
     logger.error('Login error:', error)
@@ -690,6 +740,13 @@ ipcMain.handle('license:isLoggedIn', async () => {
 ipcMain.handle('license:logout', async () => {
   try {
     const success = licenseService.logout()
+
+    // Stop trade sync when user logs out
+    if (success && cloudSync) {
+      cloudSync.stopTradeSync()
+      logger.info('[Cloud Sync] Trade synchronization stopped after logout')
+    }
+
     return { success }
   } catch (error: any) {
     logger.error('Logout error:', error)
@@ -834,6 +891,10 @@ ipcMain.handle('account:add', async (_, account: any) => {
       account.accountNumber,
       account.accountName
     )
+
+    // Restart trade sync if this becomes the primary account
+    startTradeSyncIfConfigured()
+
     return { success: true, id }
   } catch (error: any) {
     logger.error('Add account error:', error)
@@ -864,6 +925,10 @@ ipcMain.handle('account:delete', async (_, id: number) => {
 ipcMain.handle('account:setActive', async (_, id: number, isActive: boolean) => {
   try {
     accountService.setActive(id, isActive)
+
+    // Restart trade sync with new primary account
+    startTradeSyncIfConfigured()
+
     return { success: true }
   } catch (error: any) {
     logger.error('Set account active error:', error)
