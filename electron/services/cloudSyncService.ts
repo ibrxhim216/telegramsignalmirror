@@ -49,22 +49,22 @@ export class CloudSyncService {
   }
 
   /**
-   * Push signal to cloud backend
+   * Push signal to cloud backend and return the cloud signal ID
    */
-  async pushSignal(signal: ParsedSignal, channelId?: string, channelName?: string): Promise<boolean> {
+  async pushSignal(signal: ParsedSignal, channelId?: string, channelName?: string): Promise<string | null> {
     if (!this.config.enabled) {
       logger.debug('[Cloud Sync] Disabled, skipping signal push')
-      return false
+      return null
     }
 
     if (!this.config.authToken) {
       logger.warn('[Cloud Sync] No auth token, skipping signal push')
-      return false
+      return null
     }
 
     if (!this.accountNumber) {
       logger.warn('[Cloud Sync] No account number set, skipping signal push')
-      return false
+      return null
     }
 
     try {
@@ -101,19 +101,19 @@ export class CloudSyncService {
         const errorText = await response.text()
         logger.error(`[Cloud Sync] Failed to push signal: HTTP ${response.status} ${response.statusText}`)
         logger.error(`[Cloud Sync] Response body: ${errorText}`)
-        return false
+        return null
       }
 
       const result = await response.json()
       logger.info(`[Cloud Sync] Signal pushed successfully: ${result.signalId}`)
-      return true
+      return result.signalId || null
     } catch (error: any) {
       logger.error(`[Cloud Sync] Error pushing signal: ${error.message}`)
       logger.error(`[Cloud Sync] Error type: ${error.constructor.name}`)
       logger.error(`[Cloud Sync] Error code: ${error.code || 'N/A'}`)
       logger.error(`[Cloud Sync] Error cause: ${error.cause ? JSON.stringify(error.cause) : 'N/A'}`)
       logger.error(`[Cloud Sync] Stack trace: ${error.stack}`)
-      return false
+      return null
     }
   }
 

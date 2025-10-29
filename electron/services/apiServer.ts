@@ -4,6 +4,7 @@ import { logger } from '../utils/logger'
 import { ParsedSignal } from './signalParser'
 import { ModificationCommand } from './tradeModificationHandler'
 import { ChannelConfig } from '../types/channelConfig'
+import { CloudSyncService } from './cloudSyncService'
 
 interface QueuedSignal {
   id: string
@@ -11,6 +12,7 @@ interface QueuedSignal {
   config: ChannelConfig
   dbSignalId?: number
   channelId?: number
+  cloudSignalId?: string  // Cloud API signal ID for acknowledgments
 }
 
 export class ApiServer {
@@ -22,12 +24,21 @@ export class ApiServer {
   private modificationQueue: ModificationCommand[] = []
   private processedModifications: Set<string> = new Set()
   private signalIdMap: Map<string, { dbSignalId: number, channelId: number }> = new Map()
+  private cloudSyncService: CloudSyncService | null = null
 
   constructor(port: number = 3737) {
     this.port = port
     this.app = express()
     this.setupMiddleware()
     this.setupRoutes()
+  }
+
+  /**
+   * Set the cloud sync service for pushing signals to cloud
+   */
+  setCloudSyncService(service: CloudSyncService) {
+    this.cloudSyncService = service
+    logger.info('[API Server] Cloud sync service configured')
   }
 
   private setupMiddleware() {
@@ -72,10 +83,10 @@ export class ApiServer {
         return res.json({ signals: [] })
       }
 
-      // Return all pending signals with their stable IDs
+      // Return all pending signals with CLOUD signal ID (not local queue ID)
       // Note: Config is NOT sent because EA uses its own input parameters
-      const signals = this.signalQueue.map(({ id, signal }) => ({
-        id,
+      const signals = this.signalQueue.map(({ id, signal, cloudSignalId }) => ({
+        id: cloudSignalId || id,  // Use cloud signal ID if available, fallback to local ID
         ...signal,
       }))
 
@@ -83,7 +94,7 @@ export class ApiServer {
     })
 
     // Acknowledge signal processed (EA confirms it executed the trade)
-    this.app.post('/api/signals/ack', (req: Request, res: Response) => {
+    this.app.post('/api/signals/ack', async (req: Request, res: Response) => {
       // Log raw body for debugging
       logger.info(`[ACK] Raw request body: ${JSON.stringify(req.body)}`)
 
@@ -95,6 +106,35 @@ export class ApiServer {
       }
 
       logger.info(`EA ${accountNumber} acknowledged signal ${signalId}: ${status}`)
+
+      // Forward acknowledgment to cloud if this is a cloud signal ID
+      if (this.cloudSyncService && signalId.startsWith('cmh')) { // Cloud signal IDs start with 'cmh'
+        try {
+          const cloudApiUrl = process.env.CLOUD_API_URL || 'https://telegramsignalmirror.com'
+          const authToken = this.cloudSyncService.getAuthToken()
+
+          if (authToken) {
+            logger.debug(`[ACK] Forwarding acknowledgment to cloud for signal ${signalId}`)
+
+            const cloudResponse = await fetch(`${cloudApiUrl}/api/signals/acknowledge`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+              },
+              body: JSON.stringify({ signalId, accountNumber, status, message })
+            })
+
+            if (cloudResponse.ok) {
+              logger.info(`[ACK] Successfully forwarded to cloud`)
+            } else {
+              logger.error(`[ACK] Failed to forward to cloud: ${cloudResponse.status}`)
+            }
+          }
+        } catch (error: any) {
+          logger.error(`[ACK] Error forwarding to cloud: ${error.message}`)
+        }
+      }
 
       // If successful, store the ticket-to-signal mapping in database
       if (status === 'success' && message) {
@@ -254,7 +294,7 @@ export class ApiServer {
   /**
    * Add a new signal to the queue
    */
-  addSignal(signal: ParsedSignal, config: ChannelConfig, dbSignalId?: number, channelId?: number) {
+  async addSignal(signal: ParsedSignal, config: ChannelConfig, dbSignalId?: number, channelId?: number, channelName?: string) {
     const id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
 
     // Store the mapping from random ID to database signal ID
@@ -276,7 +316,27 @@ export class ApiServer {
       takeProfit5: signal.takeProfits && signal.takeProfits.length > 4 ? signal.takeProfits[4] : 0,
     }
 
-    this.signalQueue.push({ id, signal: transformedSignal, config, dbSignalId, channelId })
+    // Push to cloud first to get the cloud signal ID
+    let cloudSignalId: string | undefined
+    if (this.cloudSyncService) {
+      try {
+        const cloudId = await this.cloudSyncService.pushSignal(
+          signal,
+          channelId?.toString(),
+          channelName
+        )
+        if (cloudId) {
+          cloudSignalId = cloudId
+          logger.debug(`Got cloud signal ID: ${cloudSignalId}`)
+        }
+      } catch (error: any) {
+        logger.error(`[Cloud Sync] Failed to push signal: ${error.message}`)
+        // Continue execution even if cloud push fails
+      }
+    }
+
+    // Add to queue with cloud signal ID
+    this.signalQueue.push({ id, signal: transformedSignal, config, dbSignalId, channelId, cloudSignalId })
     logger.info(`Signal ${id} added to queue. Queue size: ${this.signalQueue.length}`)
     logger.debug(`Transformed signal: SL=${transformedSignal.stopLoss}, TP1=${transformedSignal.takeProfit1}`)
   }
