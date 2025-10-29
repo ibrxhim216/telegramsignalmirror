@@ -137,9 +137,21 @@ export class CloudSyncService {
     }
 
     try {
+      // Map modification types from desktop app to EA format
+      const typeMapping: Record<string, string> = {
+        'cancel_pending': 'delete',
+        'close_partial': 'close',
+        'close_all': 'close_all',
+        'update_sl': 'modify_sl',
+        'update_tp': 'modify_tp',
+        'move_to_breakeven': 'modify_sl' // Will need to calculate BE price
+      }
+
+      const eaType = typeMapping[modification.type] || modification.type
+
       const payload = {
         accountNumber: this.accountNumber,
-        type: modification.type,
+        type: eaType,
         signalId: modification.signalId?.toString() || null,
         channelId: modification.channelId?.toString() || null,
         channelName: modification.channelName || null,
