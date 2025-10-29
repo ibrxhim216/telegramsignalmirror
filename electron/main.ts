@@ -228,8 +228,32 @@ app.whenReady().then(async () => {
   })
 
   // Listen for signal modifications (reply-based) from Telegram
-  telegramService.on('modificationReceived', (modification) => {
+  telegramService.on('modificationReceived', async (modification) => {
     logger.info(`📝 Signal modification received: ${modification.type} for signal ${modification.signalId}`)
+
+    // Always show in UI signal feed
+    mainWindow?.webContents.send('signal:received', {
+      id: modification.id,  // Use modification's unique ID
+      channelId: modification.channelId,
+      channelName: modification.channelName,
+      messageId: modification.messageId,
+      text: modification.rawText,
+      parsed: {
+        symbol: `[${modification.type.toUpperCase().replace(/_/g, ' ')}]`,
+        direction: 'MODIFICATION',
+        confidence: 1.0
+      },
+      config: null,
+      timestamp: modification.parsedAt,
+      signalType: 'modification',
+      isUpdate: false,
+      modification: modification
+    })
+
+    // Push modification to cloud for MT5 EA to poll
+    if (cloudSync) {
+      await cloudSync.pushModification(modification)
+    }
 
     // Check if requires confirmation
     if (modification.requiresConfirmation) {

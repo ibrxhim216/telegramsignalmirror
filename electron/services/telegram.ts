@@ -25,6 +25,7 @@ export class TelegramService extends EventEmitter {
   private signalParser: SignalParser
   private monitoringChannels: number[] = []
   private channelConfigs: Map<number, ChannelConfig> = new Map()
+  private processedMessageIds: Set<string> = new Set() // Track processed Telegram messages
 
   constructor(signalParser: SignalParser) {
     super()
@@ -258,6 +259,23 @@ export class TelegramService extends EventEmitter {
 
       if (!text) {
         return
+      }
+
+      // Prevent duplicate processing of same Telegram message
+      // Use both channelId and messageId as unique key
+      const messageKey = `${chatId}-${message.id}`
+      if (this.processedMessageIds.has(messageKey)) {
+        logger.debug(`Skipping duplicate Telegram message: ${messageKey}`)
+        return
+      }
+
+      // Mark as processed
+      this.processedMessageIds.add(messageKey)
+
+      // Clean up old message IDs to prevent memory leak (keep last 1000)
+      if (this.processedMessageIds.size > 1000) {
+        const idsArray = Array.from(this.processedMessageIds)
+        this.processedMessageIds = new Set(idsArray.slice(-1000))
       }
 
       logger.debug(`New message from channel ${chatId}: ${text.substring(0, 100)}...`)

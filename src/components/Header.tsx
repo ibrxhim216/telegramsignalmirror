@@ -1,8 +1,11 @@
 import { Radio, LogOut, Settings, UserX } from 'lucide-react'
+import { useState } from 'react'
 import { useAppStore } from '../store/appStore'
+import AccountManager from './AccountManager'
 
 export default function Header() {
   const { setLoggedIn, setTelegramConnected } = useAppStore()
+  const [showAccountManager, setShowAccountManager] = useState(false)
 
   const handleDisconnect = async () => {
     if (confirm('Are you sure you want to disconnect from Telegram?')) {
@@ -38,8 +41,9 @@ export default function Header() {
           </div>
 
           <button
+            onClick={() => setShowAccountManager(true)}
             className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-            title="Settings"
+            title="Trading Accounts"
           >
             <Settings className="text-gray-400" size={20} />
           </button>
@@ -61,6 +65,8 @@ export default function Header() {
           </button>
         </div>
       </div>
+
+      <AccountManager isOpen={showAccountManager} onClose={() => setShowAccountManager(false)} />
     </header>
   )
 }

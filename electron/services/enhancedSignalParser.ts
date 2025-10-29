@@ -286,8 +286,9 @@ export class EnhancedSignalParser {
     const keywords = config.signalKeywords.entryPoint
     const prices: number[] = []
 
-    // Check for pending order formats: "SELL STOP - 3338.3" or "BUY LIMIT - 1.2345"
-    const pendingOrderPattern = /(BUY|SELL)\s*(STOP|LIMIT)\s*[-:]\s*([0-9]+\.?[0-9]*)/gi
+    // Check for pending order formats: "SELL STOP 4114", "SELL STOP - 3338.3", or "BUY LIMIT : 1.2345"
+    // Pattern allows: space, dash, or colon as separator
+    const pendingOrderPattern = /(BUY|SELL)\s*(STOP|LIMIT)\s+([0-9]+\.?[0-9]*)/gi
     const pendingMatches = text.matchAll(pendingOrderPattern)
     for (const match of pendingMatches) {
       const price = parseFloat(match[3])

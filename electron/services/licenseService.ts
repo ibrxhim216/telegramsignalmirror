@@ -366,6 +366,13 @@ export class LicenseService extends EventEmitter {
   }
 
   /**
+   * Get authentication token (public method)
+   */
+  getAuthToken(): string | null {
+    return this.loadToken()
+  }
+
+  /**
    * Validate current license with web API
    */
   async validateLicenseWithAPI(): Promise<LicenseValidationResult> {

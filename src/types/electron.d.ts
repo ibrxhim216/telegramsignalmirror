@@ -65,6 +65,13 @@ declare global {
         onSettingsUpdated: (callback: (settings: any) => void) => void
         onStatsReset: (callback: () => void) => void
       }
+      account: {
+        getAll: () => Promise<{ success: boolean; accounts?: any[]; error?: string }>
+        add: (account: { platform: string; accountNumber: string; accountName?: string }) => Promise<{ success: boolean; id?: number; error?: string }>
+        update: (id: number, data: any) => Promise<{ success: boolean; error?: string }>
+        delete: (id: number) => Promise<{ success: boolean; error?: string }>
+        setActive: (id: number, isActive: boolean) => Promise<{ success: boolean; error?: string }>
+      }
     }
   }
 }

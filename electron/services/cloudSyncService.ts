@@ -118,6 +118,71 @@ export class CloudSyncService {
   }
 
   /**
+   * Push modification command to cloud backend
+   */
+  async pushModification(modification: any): Promise<boolean> {
+    if (!this.config.enabled) {
+      logger.debug('[Cloud Sync] Disabled, skipping modification push')
+      return false
+    }
+
+    if (!this.config.authToken) {
+      logger.warn('[Cloud Sync] No auth token, skipping modification push')
+      return false
+    }
+
+    if (!this.accountNumber) {
+      logger.warn('[Cloud Sync] No account number set, skipping modification push')
+      return false
+    }
+
+    try {
+      const payload = {
+        accountNumber: this.accountNumber,
+        type: modification.type,
+        signalId: modification.signalId?.toString() || null,
+        channelId: modification.channelId?.toString() || null,
+        channelName: modification.channelName || null,
+        rawText: modification.rawText || null,
+        messageId: modification.messageId?.toString() || null,
+        tickets: modification.affectedTickets || [],
+        newValue: modification.newValue || null,
+        percentage: modification.percentage || null,
+        reason: modification.reason || null
+      }
+
+      logger.info(`[Cloud Sync] Pushing modification to ${this.config.apiUrl}/api/modifications`)
+      logger.debug(`[Cloud Sync] Payload: ${JSON.stringify(payload)}`)
+
+      const response = await fetch(`${this.config.apiUrl}/api/modifications`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.authToken}`
+        },
+        body: JSON.stringify(payload)
+      })
+
+      logger.debug(`[Cloud Sync] Response status: ${response.status} ${response.statusText}`)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        logger.error(`[Cloud Sync] Failed to push modification: HTTP ${response.status} ${response.statusText}`)
+        logger.error(`[Cloud Sync] Response body: ${errorText}`)
+        return false
+      }
+
+      const result = await response.json()
+      logger.info(`[Cloud Sync] Modification pushed successfully: ${result.modificationId || 'OK'}`)
+      return true
+    } catch (error: any) {
+      logger.error(`[Cloud Sync] Error pushing modification: ${error.message}`)
+      logger.error(`[Cloud Sync] Stack trace: ${error.stack}`)
+      return false
+    }
+  }
+
+  /**
    * Test connection to cloud backend
    */
   async testConnection(): Promise<boolean> {
