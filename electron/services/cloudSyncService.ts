@@ -144,7 +144,13 @@ export class CloudSyncService {
         'close_all': 'close_all',
         'update_sl': 'modify_sl',
         'update_tp': 'modify_tp',
-        'move_to_breakeven': 'modify_sl' // Will need to calculate BE price
+        'move_to_breakeven': 'breakeven',
+        'close_tp1': 'close_tp1',
+        'close_tp2': 'close_tp2',
+        'close_tp3': 'close_tp3',
+        'close_tp4': 'close_tp4',
+        'set_tp1': 'set_tp1',
+        'remove_sl': 'remove_sl'
       }
 
       const eaType = typeMapping[modification.type] || modification.type
