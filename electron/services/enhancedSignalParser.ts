@@ -248,10 +248,11 @@ export class EnhancedSignalParser {
   }
 
   /**
-   * Check if text matches any of the keywords
+   * Check if text matches any of the keywords (case insensitive)
    */
   private matchesKeywords(text: string, keywords: string[]): boolean {
-    return keywords.some(keyword => text.includes(keyword.toUpperCase()))
+    const textLower = text.toLowerCase()
+    return keywords.some(keyword => textLower.includes(keyword.toLowerCase()))
   }
 
   /**
