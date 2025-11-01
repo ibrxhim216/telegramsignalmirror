@@ -19,6 +19,7 @@ export default function AccountManager({ isOpen, onClose }: Props) {
   const [accounts, setAccounts] = useState<TradingAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [licenseInfo, setLicenseInfo] = useState<{maxAccounts: number, currentAccounts: number} | null>(null)
   const [newAccount, setNewAccount] = useState({
     platform: 'MT5',
     accountNumber: '',
@@ -28,6 +29,7 @@ export default function AccountManager({ isOpen, onClose }: Props) {
   useEffect(() => {
     if (isOpen) {
       loadAccounts()
+      loadLicenseInfo()
     }
   }, [isOpen])
 
@@ -44,6 +46,20 @@ export default function AccountManager({ isOpen, onClose }: Props) {
     setLoading(false)
   }
 
+  const loadLicenseInfo = async () => {
+    try {
+      const result = await window.electron.license.get()
+      if (result.success && result.license) {
+        setLicenseInfo({
+          maxAccounts: result.license.limits.maxAccounts,
+          currentAccounts: result.license.currentAccounts
+        })
+      }
+    } catch (error) {
+      console.error('Error loading license info:', error)
+    }
+  }
+
   const handleAddAccount = async () => {
     if (!newAccount.accountNumber) {
       alert('Please enter an account number')
@@ -51,6 +67,24 @@ export default function AccountManager({ isOpen, onClose }: Props) {
     }
 
     try {
+      // Check license limit first
+      const canAdd = await window.electron.license.canAddAccount()
+
+      if (!canAdd.canPerformAction) {
+        let message = canAdd.reason || 'Cannot add more accounts'
+
+        if (canAdd.limit && canAdd.currentUsage !== undefined) {
+          message = `Account limit reached!\n\nYou are currently using ${canAdd.currentUsage} of ${canAdd.limit} account(s).\n\n`
+
+          if (canAdd.upgradeRequired) {
+            message += `Upgrade to ${canAdd.upgradeRequired} plan to add more accounts.`
+          }
+        }
+
+        alert(message)
+        return
+      }
+
       const result = await window.electron.account.add({
         platform: newAccount.platform,
         accountNumber: newAccount.accountNumber,
@@ -174,6 +208,15 @@ export default function AccountManager({ isOpen, onClose }: Props) {
                 )}
               </div>
 
+              {/* License Info */}
+              {licenseInfo && licenseInfo.maxAccounts !== -1 && (
+                <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                  <p className="text-sm text-blue-400">
+                    <span className="font-medium">Accounts:</span> {licenseInfo.currentAccounts} / {licenseInfo.maxAccounts === -1 ? '∞' : licenseInfo.maxAccounts}
+                  </p>
+                </div>
+              )}
+
               {/* Add Account Form */}
               {showAddForm ? (
                 <div className="border border-gray-600 rounded-lg p-4 bg-gray-700/50">
@@ -199,7 +242,9 @@ export default function AccountManager({ isOpen, onClose }: Props) {
                         value={newAccount.accountNumber}
                         onChange={(e) => setNewAccount({ ...newAccount, accountNumber: e.target.value })}
                         placeholder="Enter account number (e.g., 52555244)"
-                        className="w-full bg-gray-600 border border-gray-500 rounded px-3 py-2 text-sm text-white placeholder-gray-400"
+                        autoComplete="off"
+                        spellCheck="false"
+                        className="w-full bg-gray-600 border border-gray-500 rounded px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
                       />
                     </div>
 
@@ -210,7 +255,9 @@ export default function AccountManager({ isOpen, onClose }: Props) {
                         value={newAccount.accountName}
                         onChange={(e) => setNewAccount({ ...newAccount, accountName: e.target.value })}
                         placeholder="My Trading Account"
-                        className="w-full bg-gray-600 border border-gray-500 rounded px-3 py-2 text-sm text-white placeholder-gray-400"
+                        autoComplete="off"
+                        spellCheck="false"
+                        className="w-full bg-gray-600 border border-gray-500 rounded px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-green-500"
                       />
                     </div>
 

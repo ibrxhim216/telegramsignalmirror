@@ -149,11 +149,33 @@ export async function initDatabase() {
         FOREIGN KEY (channel_id) REFERENCES channels(id)
       );
 
+      CREATE TABLE IF NOT EXISTS active_trades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_number INTEGER NOT NULL,
+        symbol TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        entry_price REAL,
+        stop_loss REAL,
+        take_profit TEXT,
+        lot_size REAL,
+        account_number TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        channel_id INTEGER,
+        opened_at DATETIME,
+        status TEXT DEFAULT 'open',
+        cloud_signal_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_number, account_number)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_signals_channel_id ON signals(channel_id);
       CREATE INDEX IF NOT EXISTS idx_trades_signal_id ON trades(signal_id);
       CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
       CREATE INDEX IF NOT EXISTS idx_modifications_signal_id ON signal_modifications(signal_id);
       CREATE INDEX IF NOT EXISTS idx_modifications_status ON signal_modifications(status);
+      CREATE INDEX IF NOT EXISTS idx_active_trades_ticket ON active_trades(ticket_number, account_number);
+      CREATE INDEX IF NOT EXISTS idx_active_trades_status ON active_trades(status);
     `)
 
     // Run migrations for existing databases

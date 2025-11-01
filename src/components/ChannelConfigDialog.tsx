@@ -99,6 +99,7 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, on
       const result = await window.electron.channelConfig.saveConfig(config)
       if (result.success) {
         alert('Configuration saved successfully!')
+        onClose()
       } else {
         alert('Failed to save configuration')
       }
@@ -548,6 +549,8 @@ function KeywordInput({ label, placeholder, value, onChange }: {
             e.currentTarget.blur()
           }
         }}
+        autoComplete="off"
+        spellCheck="false"
         className="col-span-3 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
       />
     </div>

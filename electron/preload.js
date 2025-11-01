@@ -115,4 +115,26 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('visionAI:statsReset', callback)
     },
   },
+
+  // Multi-TP Handler
+  multiTP: {
+    getSettings: () => ipcRenderer.invoke('multiTP:getSettings'),
+    saveSettings: (settings) => ipcRenderer.invoke('multiTP:saveSettings', settings),
+  },
+
+  // Trading Accounts
+  account: {
+    getAll: () => ipcRenderer.invoke('account:getAll'),
+    add: (account) => ipcRenderer.invoke('account:add', account),
+    update: (id, data) => ipcRenderer.invoke('account:update', id, data),
+    delete: (id) => ipcRenderer.invoke('account:delete', id),
+    setActive: (id, isActive) => ipcRenderer.invoke('account:setActive', id, isActive),
+  },
+
+  // Cloud Sync
+  cloudSync: {
+    onAccountError: (callback) => {
+      ipcRenderer.on('cloudSync:accountError', (_, errorData) => callback(errorData))
+    },
+  },
 })

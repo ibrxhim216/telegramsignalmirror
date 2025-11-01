@@ -38,7 +38,7 @@ declare global {
         validate: () => Promise<{ success: boolean; isValid?: boolean; license?: any; reason?: string; error?: string }>
         activate: (request: any) => Promise<{ success: boolean; license?: any; error?: string }>
         deactivate: () => Promise<{ success: boolean; error?: string }>
-        canAddAccount: () => Promise<{ success: boolean; canPerformAction?: boolean; reason?: string; error?: string }>
+        canAddAccount: () => Promise<{ canPerformAction: boolean; reason?: string; currentUsage?: number; limit?: number; upgradeRequired?: string }>
         canAddChannel: () => Promise<{ success: boolean; canPerformAction?: boolean; reason?: string; error?: string }>
         hasFeature: (feature: string) => Promise<{ success: boolean; hasFeature?: boolean; error?: string }>
         getMachineId: () => Promise<{ success: boolean; machineId?: string; error?: string }>
@@ -71,6 +71,9 @@ declare global {
         update: (id: number, data: any) => Promise<{ success: boolean; error?: string }>
         delete: (id: number) => Promise<{ success: boolean; error?: string }>
         setActive: (id: number, isActive: boolean) => Promise<{ success: boolean; error?: string }>
+      }
+      cloudSync: {
+        onAccountError: (callback: (errorData: { accountNumber: string; message: string; action: string }) => void) => void
       }
     }
   }

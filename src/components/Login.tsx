@@ -82,6 +82,8 @@ export default function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="your@email.com"
+                autoComplete="off"
+                spellCheck="false"
                 className="w-full pl-11 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isLoading}
                 autoFocus
@@ -101,6 +103,8 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="••••••••"
+                autoComplete="off"
+                spellCheck="false"
                 className="w-full pl-11 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isLoading}
               />

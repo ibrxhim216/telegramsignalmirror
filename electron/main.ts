@@ -116,6 +116,12 @@ app.whenReady().then(async () => {
   // Configure API server with cloud sync
   apiServer.setCloudSyncService(cloudSync)
 
+  // Cloud Sync event listeners
+  cloudSync.on('accountError', (errorData: any) => {
+    logger.warn(`⚠️ Cloud Sync: Account not found - ${errorData.accountNumber}`)
+    mainWindow?.webContents.send('cloudSync:accountError', errorData)
+  })
+
   // Start API server for MT4/MT5 EA communication
   await apiServer.start()
 

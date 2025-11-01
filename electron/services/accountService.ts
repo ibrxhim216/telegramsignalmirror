@@ -100,6 +100,9 @@ export class AccountService {
         throw new Error(`Account ${accountNumber} on ${platform} already exists`)
       }
 
+      // Deactivate all other accounts (only one account can be active at a time)
+      db.run('UPDATE trading_accounts SET is_active = 0')
+
       db.run(`
         INSERT INTO trading_accounts (platform, account_number, account_name, is_active)
         VALUES (?, ?, ?, 1)
@@ -110,7 +113,7 @@ export class AccountService {
       const id = result[0].values[0][0] as number
 
       saveDatabase()
-      logger.info(`Added trading account: ${accountNumber} (${platform})`)
+      logger.info(`Added trading account: ${accountNumber} (${platform}), deactivated others`)
 
       return id
     } catch (error: any) {
@@ -197,6 +200,14 @@ export class AccountService {
    */
   setActive(id: number, isActive: boolean): void {
     try {
+      const db = getDatabase()
+
+      if (isActive) {
+        // Deactivate all other accounts first (only one can be active)
+        db.run('UPDATE trading_accounts SET is_active = 0')
+      }
+
+      // Now activate/deactivate the specified account
       this.updateAccount(id, { is_active: isActive ? 1 : 0 })
       logger.info(`Set account ID ${id} active status to ${isActive}`)
     } catch (error: any) {

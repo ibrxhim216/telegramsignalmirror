@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events'
 import { logger } from '../utils/logger'
 import { ParsedSignal } from './signalParser'
 import { getDatabase, saveDatabase } from '../database'
@@ -8,12 +9,13 @@ export interface CloudSyncConfig {
   authToken?: string
 }
 
-export class CloudSyncService {
+export class CloudSyncService extends EventEmitter {
   private config: CloudSyncConfig
   private accountNumber: string | null = null
   private syncInterval: NodeJS.Timeout | null = null
 
   constructor(config: CloudSyncConfig) {
+    super()
     this.config = config
   }
 
@@ -101,6 +103,30 @@ export class CloudSyncService {
         const errorText = await response.text()
         logger.error(`[Cloud Sync] Failed to push signal: HTTP ${response.status} ${response.statusText}`)
         logger.error(`[Cloud Sync] Response body: ${errorText}`)
+
+        // Emit error event for UI notification when account not found
+        if (response.status === 404) {
+          try {
+            const errorData = JSON.parse(errorText)
+            if (errorData.error === 'Trading account not found or inactive') {
+              this.emit('accountError', {
+                accountNumber: this.accountNumber,
+                message: 'Trading account not found or inactive',
+                action: 'Please register this account on the website'
+              })
+            }
+          } catch (e) {
+            // Error text wasn't JSON, check if it contains the error message
+            if (errorText.includes('Trading account not found or inactive')) {
+              this.emit('accountError', {
+                accountNumber: this.accountNumber,
+                message: 'Trading account not found or inactive',
+                action: 'Please register this account on the website'
+              })
+            }
+          }
+        }
+
         return null
       }
 
@@ -187,6 +213,30 @@ export class CloudSyncService {
         const errorText = await response.text()
         logger.error(`[Cloud Sync] Failed to push modification: HTTP ${response.status} ${response.statusText}`)
         logger.error(`[Cloud Sync] Response body: ${errorText}`)
+
+        // Emit error event for UI notification when account not found
+        if (response.status === 404) {
+          try {
+            const errorData = JSON.parse(errorText)
+            if (errorData.error === 'Trading account not found or inactive') {
+              this.emit('accountError', {
+                accountNumber: this.accountNumber,
+                message: 'Trading account not found or inactive',
+                action: 'Please register this account on the website'
+              })
+            }
+          } catch (e) {
+            // Error text wasn't JSON, check if it contains the error message
+            if (errorText.includes('Trading account not found or inactive')) {
+              this.emit('accountError', {
+                accountNumber: this.accountNumber,
+                message: 'Trading account not found or inactive',
+                action: 'Please register this account on the website'
+              })
+            }
+          }
+        }
+
         return false
       }
 
