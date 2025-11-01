@@ -38,7 +38,7 @@ export default function AccountManager({ isOpen, onClose }: Props) {
     try {
       const result = await window.electron.account.getAll()
       if (result.success) {
-        setAccounts(result.accounts)
+        setAccounts(result.accounts || [])
       }
     } catch (error) {
       console.error('Error loading accounts:', error)

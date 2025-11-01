@@ -81,19 +81,21 @@
   },
   "build": {
     "appId": "com.telegramsignalcopier.app",
-    "productName": "Telegram Signal Copier",
+    "productName": "Telegram Signal Mirror",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
+      "electron/**/*",
       "package.json"
     ],
     "win": {
       "target": [
         "portable"
       ],
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "sign": null
     },
     "mac": {
       "target": [
