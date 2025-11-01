@@ -11,12 +11,9 @@ import { signalModificationParser } from './signalModificationParser'
 import { ChannelConfig } from '../types/channelConfig'
 
 // Telegram API credentials from environment variables
+// These will be checked when the user tries to connect
 const API_ID = parseInt(process.env.TELEGRAM_API_ID || '0')
 const API_HASH = process.env.TELEGRAM_API_HASH || ''
-
-if (!API_ID || !API_HASH) {
-  throw new Error('Telegram API credentials not configured. Please set TELEGRAM_API_ID and TELEGRAM_API_HASH in .env file')
-}
 
 export class TelegramService extends EventEmitter {
   private client: TelegramClient | null = null
@@ -35,6 +32,14 @@ export class TelegramService extends EventEmitter {
 
   async connect(phoneNumber: string) {
     try {
+      // Check if Telegram API credentials are configured
+      if (!API_ID || !API_HASH) {
+        const errorMessage = 'Telegram API credentials not configured. Please add your TELEGRAM_API_ID and TELEGRAM_API_HASH to connect to Telegram.'
+        logger.error(errorMessage)
+        this.emit('error', errorMessage)
+        throw new Error(errorMessage)
+      }
+
       this.phoneNumber = phoneNumber
 
       // Load session from database if exists
