@@ -2,9 +2,9 @@
  * License Configuration Types
  *
  * Three-tier licensing system:
- * - Starter: $14.99/month (1 account, 1 channel)
- * - Pro: $24.99/month (3 accounts, unlimited channels)
- * - Advance: $279 lifetime (unlimited accounts, unlimited channels)
+ * - Starter (Basic): $20/month (1 account, unlimited channels)
+ * - Pro: $50/month (3 accounts, unlimited channels)
+ * - Advance (Lifetime): $499 lifetime (3 accounts, unlimited channels)
  */
 
 export type LicenseTier = 'starter' | 'pro' | 'advance' | 'trial' | 'none'
@@ -107,7 +107,7 @@ export const LICENSE_TIERS: Record<LicenseTier, LicenseLimits> = {
   },
 
   advance: {
-    maxAccounts: -1,        // -1 means unlimited
+    maxAccounts: 3,         // Lifetime plan: 3 accounts
     maxChannels: -1,        // -1 means unlimited
     multiTP: true,
     tscProtector: true,
@@ -120,17 +120,17 @@ export const LICENSE_TIERS: Record<LicenseTier, LicenseLimits> = {
 
 export const PRICING = {
   starter: {
-    monthly: 14.99,
+    monthly: 20,
     currency: 'USD',
     stripePriceId: process.env.STRIPE_STARTER_PRICE_ID || 'price_starter',
   },
   pro: {
-    monthly: 24.99,
+    monthly: 50,
     currency: 'USD',
     stripePriceId: process.env.STRIPE_PRO_PRICE_ID || 'price_pro',
   },
   advance: {
-    lifetime: 279,
+    lifetime: 499,
     currency: 'USD',
     stripePriceId: process.env.STRIPE_ADVANCE_PRICE_ID || 'price_advance',
   },
