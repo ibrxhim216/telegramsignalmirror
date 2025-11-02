@@ -18,7 +18,11 @@ build/
 # MT4/MT5 files
 *.set
 mt4-ea/
-mt4-mt5/
+# Ignore unversioned compiled MT4/MT5 files but allow source and versioned releases
+mt4-mt5/TelegramSignalMirror.ex4
+mt4-mt5/TelegramSignalMirror.ex5
+mt4-mt5/*.log
+mt4-mt5/nul
 
 # Development files
 dev.log
