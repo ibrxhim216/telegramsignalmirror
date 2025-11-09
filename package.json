@@ -93,6 +93,8 @@
       "electron/index.js",
       "electron/preload.js",
       "package.json",
+      ".env",
+      "assets/**/*",
       "!electron/**/*.ts",
       "!electron/tsconfig.json"
     ],
@@ -100,14 +102,14 @@
       "target": [
         "portable"
       ],
-      "icon": "assets/icon.ico",
+      "icon": "assets/icon.png",
       "sign": null
     },
     "mac": {
       "target": [
         "dmg"
       ],
-      "icon": "assets/icon.icns"
+      "icon": "assets/icon.png"
     },
     "linux": {
       "target": [

@@ -1,11 +1,9 @@
-import { Radio, LogOut, Settings, UserX, AlertCircle, X } from 'lucide-react'
+import { Radio, LogOut, UserX, AlertCircle, X } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useAppStore } from '../store/appStore'
-import AccountManager from './AccountManager'
 
 export default function Header() {
   const { setLoggedIn, setTelegramConnected } = useAppStore()
-  const [showAccountManager, setShowAccountManager] = useState(false)
   const [accountError, setAccountError] = useState<{ accountNumber: string; message: string; action: string } | null>(null)
 
   useEffect(() => {
@@ -52,14 +50,6 @@ export default function Header() {
             </div>
 
             <button
-              onClick={() => setShowAccountManager(true)}
-              className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-              title="Trading Accounts"
-            >
-              <Settings className="text-gray-400" size={20} />
-            </button>
-
-            <button
               onClick={handleDisconnect}
               className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
               title="Disconnect from Telegram"
@@ -76,8 +66,6 @@ export default function Header() {
             </button>
           </div>
         </div>
-
-        <AccountManager isOpen={showAccountManager} onClose={() => setShowAccountManager(false)} />
       </header>
 
       {/* Account Error Notification */}

@@ -156,7 +156,7 @@ export default function LicenseStatus() {
   }
 
   const handleUpgrade = () => {
-    window.open('https://telegramsignalcopier.com/pricing', '_blank')
+    window.open('https://www.telegramsignalmirror.com/dashboard/billing', '_blank')
   }
 
   if (!license) {

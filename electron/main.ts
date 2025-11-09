@@ -1,6 +1,18 @@
-import 'dotenv/config'
+import { config as dotenvConfig } from 'dotenv'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
+import fs from 'fs'
+
+// Load .env file - in production it's bundled in the resources folder
+const isDevelopment = process.env.NODE_ENV === 'development'
+if (!isDevelopment) {
+  const envPath = path.join(process.resourcesPath, '.env')
+  if (fs.existsSync(envPath)) {
+    dotenvConfig({ path: envPath })
+  }
+} else {
+  dotenvConfig()
+}
 import { initDatabase } from './database'
 import { TelegramService } from './services/telegram'
 import { WebSocketServer } from './services/websocket'
@@ -23,8 +35,6 @@ let wsServer: WebSocketServer | null = null
 let apiServer: ApiServer | null = null
 let signalParser: SignalParser | null = null
 let cloudSync: CloudSyncService | null = null
-
-const isDev = process.env.NODE_ENV === 'development'
 
 /**
  * Helper function to start or restart trade sync
@@ -67,18 +77,20 @@ function createWindow() {
     backgroundColor: '#1a1a1a',
     show: false,
     autoHideMenuBar: true,
+    icon: path.join(__dirname, '../assets/icon.png'),
   })
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
   })
 
-  if (isDev) {
+  if (isDevelopment) {
     // Vite dev server running on port 5555
     mainWindow.loadURL('http://localhost:5555')
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/renderer/index.html'))
+    // In production, load from the packaged app
+    mainWindow.loadFile(path.join(app.getAppPath(), 'dist/renderer/index.html'))
   }
 
   mainWindow.on('closed', () => {

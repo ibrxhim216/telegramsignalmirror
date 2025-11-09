@@ -208,7 +208,7 @@ export default function LicenseActivation({ isOpen, onClose, onActivated }: Lice
                 <p className="text-xs text-blue-300">
                   💡 Don't have a license yet?{' '}
                   <a
-                    href="https://telegramsignalcopier.com/pricing"
+                    href="https://www.telegramsignalmirror.com/pricing"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="underline hover:text-blue-200"

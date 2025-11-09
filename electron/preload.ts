@@ -170,6 +170,13 @@ contextBridge.exposeInMainWorld('electron', {
     delete: (id: number) => ipcRenderer.invoke('account:delete', id),
     setActive: (id: number, isActive: boolean) => ipcRenderer.invoke('account:setActive', id, isActive),
   },
+
+  // Cloud Sync
+  cloudSync: {
+    onAccountError: (callback: (errorData: any) => void) => {
+      return createSingletonListener('cloudSync:accountError', callback, (_: any, errorData: any) => callback(errorData))
+    },
+  },
 })
 
 // TypeScript declaration for window object
@@ -247,6 +254,9 @@ declare global {
         update: (id: number, data: any) => Promise<{ success: boolean; error?: string }>
         delete: (id: number) => Promise<{ success: boolean; error?: string }>
         setActive: (id: number, isActive: boolean) => Promise<{ success: boolean; error?: string }>
+      }
+      cloudSync: {
+        onAccountError: (callback: (errorData: any) => void) => () => void
       }
     }
   }
