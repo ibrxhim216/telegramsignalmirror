@@ -143,16 +143,12 @@ export default function LicenseStatus() {
     if (!license) return false
     if (license.tier === 'advance') return false // Already on highest tier
 
-    // Show if close to limits
-    const accountUsage = license.limits.maxAccounts > 0
-      ? (license.currentAccounts / license.limits.maxAccounts) * 100
-      : 0
-
+    // Show if close to channel limit (accounts are managed on web portal)
     const channelUsage = license.limits.maxChannels > 0
       ? (license.currentChannels / license.limits.maxChannels) * 100
       : 0
 
-    return accountUsage >= 80 || channelUsage >= 80
+    return channelUsage >= 80
   }
 
   const handleUpgrade = () => {
@@ -189,11 +185,8 @@ export default function LicenseStatus() {
             </div>
           )}
 
-          {/* Usage */}
+          {/* Usage - Only show channels (accounts are managed on web portal) */}
           <div className="flex items-center gap-3 text-gray-400">
-            <span>
-              {license.currentAccounts} / {license.limits.maxAccounts === -1 ? '∞' : license.limits.maxAccounts} accounts
-            </span>
             <span>
               {license.currentChannels} / {license.limits.maxChannels === -1 ? '∞' : license.limits.maxChannels} channels
             </span>
@@ -241,7 +234,7 @@ export default function LicenseStatus() {
               Approaching Limit
             </h4>
             <p className="text-xs text-yellow-300/80">
-              You're close to your {license.tier} plan limits. Upgrade to continue adding more accounts or channels.
+              You're close to your {license.tier} plan channel limit. Upgrade to monitor more signal providers.
             </p>
           </div>
           <button
