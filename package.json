@@ -100,10 +100,14 @@
     ],
     "win": {
       "target": [
-        "portable"
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
       ],
       "icon": "assets/icon.png",
-      "sign": null
+      "verifyUpdateCodeSignature": false,
+      "signAndEditExecutable": false
     },
     "mac": {
       "target": [
