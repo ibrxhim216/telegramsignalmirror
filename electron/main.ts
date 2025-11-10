@@ -38,28 +38,27 @@ let cloudSync: CloudSyncService | null = null
 
 /**
  * Helper function to start or restart trade sync
+ * Cloud sync distributes signals to all accounts registered on the user's web portal
  */
 function startTradeSyncIfConfigured() {
   if (!cloudSync) return
 
   const authToken = licenseService.getAuthToken()
-  const primaryAccount = accountService.getPrimaryAccount()
 
-  if (authToken && primaryAccount) {
+  if (authToken) {
     // Stop existing sync if running
     cloudSync.stopTradeSync()
 
     // Set configuration
     cloudSync.setAuthToken(authToken)
-    cloudSync.setAccountNumber(primaryAccount.account_number)
 
-    // Start sync
+    // Start sync - signals will be distributed to all user's accounts
     cloudSync.startTradeSync(30000)
     logger.info('[Cloud Sync] Trade synchronization (re)started')
   } else {
     // Stop sync if not fully configured
     cloudSync.stopTradeSync()
-    logger.info('[Cloud Sync] Trade synchronization stopped - missing auth token or account')
+    logger.info('[Cloud Sync] Trade synchronization stopped - missing auth token')
   }
 }
 
@@ -128,12 +127,6 @@ app.whenReady().then(async () => {
   // Configure API server with cloud sync
   apiServer.setCloudSyncService(cloudSync)
 
-  // Cloud Sync event listeners
-  cloudSync.on('accountError', (errorData: any) => {
-    logger.warn(`⚠️ Cloud Sync: Account not found - ${errorData.accountNumber}`)
-    mainWindow?.webContents.send('cloudSync:accountError', errorData)
-  })
-
   // Start API server for MT4/MT5 EA communication
   await apiServer.start()
 
@@ -168,30 +161,29 @@ app.whenReady().then(async () => {
         primaryAccount.platform as 'MT4' | 'MT5'
       )
     } else {
-      // It's a new signal - check protector first
+      // It's a new signal - process it
+      // Cloud sync will distribute to all registered accounts automatically
       const primaryAccount = accountService.getPrimaryAccount()
-      if (!primaryAccount) {
-        logger.warn('No active trading account configured, skipping signal')
-        mainWindow?.webContents.send('signal:blocked', {
-          signal,
-          reason: 'No active trading account configured',
-        })
-        return
+
+      // Only run local features (TSC Protector, WebSocket) if there's a local trading account
+      if (primaryAccount) {
+        const protectorCheck = tscProtector.canOpenTrade(primaryAccount.account_number, primaryAccount.platform as 'MT4' | 'MT5')
+
+        if (!protectorCheck.allowed) {
+          logger.warn(`🚫 TSC PROTECTOR blocked signal: ${protectorCheck.reason}`)
+          mainWindow?.webContents.send('signal:blocked', {
+            signal,
+            reason: protectorCheck.reason,
+          })
+          return
+        }
+
+        // Send to WebSocket (local feature)
+        wsServer?.broadcast(signal)
+      } else {
+        logger.info('ℹ️  No local trading account configured - skipping local features (TSC Protector, WebSocket)')
+        logger.info('   Signal will still be pushed to cloud for distribution')
       }
-
-      const protectorCheck = tscProtector.canOpenTrade(primaryAccount.account_number, primaryAccount.platform as 'MT4' | 'MT5')
-
-      if (!protectorCheck.allowed) {
-        logger.warn(`🚫 TSC PROTECTOR blocked signal: ${protectorCheck.reason}`)
-        mainWindow?.webContents.send('signal:blocked', {
-          signal,
-          reason: protectorCheck.reason,
-        })
-        return
-      }
-
-      // Send to WebSocket
-      wsServer?.broadcast(signal)
 
       // Process with multi-TP handler if signal has multiple TPs
       if (signal.parsed) {
