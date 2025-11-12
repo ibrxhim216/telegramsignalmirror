@@ -3,15 +3,26 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
-// Load .env file - in production it's bundled in the resources folder
+// Load .env file - in production it's unpacked from app.asar
 const isDevelopment = process.env.NODE_ENV === 'development'
+console.log('[ENV] isDevelopment:', isDevelopment)
+console.log('[ENV] NODE_ENV:', process.env.NODE_ENV)
 if (!isDevelopment) {
-  const envPath = path.join(process.resourcesPath, '.env')
+  // In production, .env is unpacked from app.asar to app.asar.unpacked
+  const envPath = path.join(app.getAppPath(), '.env')
+  console.log('[ENV] Looking for .env at:', envPath)
+  console.log('[ENV] File exists:', fs.existsSync(envPath))
   if (fs.existsSync(envPath)) {
-    dotenvConfig({ path: envPath })
+    const result = dotenvConfig({ path: envPath })
+    console.log('[ENV] Dotenv load result:', result.error ? result.error.message : 'SUCCESS')
+    console.log('[ENV] TELEGRAM_API_ID:', process.env.TELEGRAM_API_ID ? 'SET' : 'NOT SET')
+    console.log('[ENV] TELEGRAM_API_HASH:', process.env.TELEGRAM_API_HASH ? 'SET' : 'NOT SET')
+  } else {
+    console.log('[ENV] ERROR: .env file not found at', envPath)
   }
 } else {
-  dotenvConfig()
+  const result = dotenvConfig()
+  console.log('[ENV] Dev mode - dotenv result:', result.error ? result.error.message : 'SUCCESS')
 }
 import { initDatabase } from './database'
 import { TelegramService } from './services/telegram'

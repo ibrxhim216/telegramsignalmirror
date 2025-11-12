@@ -98,6 +98,9 @@
       "!electron/**/*.ts",
       "!electron/tsconfig.json"
     ],
+    "asarUnpack": [
+      ".env"
+    ],
     "win": {
       "target": [
         {
