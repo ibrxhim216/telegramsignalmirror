@@ -1,6 +1,6 @@
 {
   "name": "telegram-signal-copier",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Desktop application that copies trading signals from Telegram to MT4/MT5/cTrader",
   "main": "electron/index.js",
   "scripts": {
