@@ -18,6 +18,7 @@ string AccountNumber;                                   // Auto-detected from MT
 
 // Symbol Mapping
 input group "========== SYMBOL MAPPING =========="
+input string   CustomSymbolMap = "";                    // Custom Symbol Mapping (e.g., XAUUSD=GOLD,US30=DJ30)
 input string   SymbolPrefix = "";                       // Symbol Prefix
 input string   SymbolSuffix = "";                       // Symbol Suffix
 input string   SkipPrefixSuffixPairs = "";              // Skip Prefix/Suffix for these symbols (comma separated)
@@ -200,6 +201,13 @@ struct TradeInfo
    SignalConfig config;
 };
 
+// Symbol mapping structure
+struct SymbolMapping
+{
+   string fromSymbol;
+   string toSymbol;
+};
+
 // Global variables
 bool isConnected = false;
 datetime lastPoll = 0;
@@ -207,6 +215,7 @@ datetime lastModificationPoll = 0;
 datetime lastTimerRun = 0;
 string lastError = "";
 TradeInfo activeTrades[];     // Track all active trades for breakeven/trailing
+SymbolMapping customMappings[];  // Custom symbol mappings
 
 // TSM Protector Variables
 double protectorDailyPL = 0;          // Daily profit/loss tracker
@@ -234,6 +243,54 @@ void ArrayRemove(TradeInfo &array[], int index, int count)
 }
 
 //+------------------------------------------------------------------+
+//| Initialize custom symbol mappings from input string              |
+//+------------------------------------------------------------------+
+void InitializeSymbolMappings()
+{
+   ArrayResize(customMappings, 0); // Clear array
+
+   if(CustomSymbolMap == "") return; // No custom mappings defined
+
+   // Parse the custom mapping string
+   // Format: "XAUUSD=GOLD,XAGUSD=SILVER,US30=DJ30"
+   string pairs[];
+   int pairCount = StringSplit(CustomSymbolMap, ',', pairs);
+
+   for(int i = 0; i < pairCount; i++)
+   {
+      // Trim whitespace
+      StringTrimLeft(pairs[i]);
+      StringTrimRight(pairs[i]);
+
+      // Split by '='
+      string mapping[];
+      int parts = StringSplit(pairs[i], '=', mapping);
+
+      if(parts == 2)
+      {
+         // Trim whitespace from both parts
+         StringTrimLeft(mapping[0]);
+         StringTrimRight(mapping[0]);
+         StringTrimLeft(mapping[1]);
+         StringTrimRight(mapping[1]);
+
+         // Add to mappings array
+         int size = ArraySize(customMappings);
+         ArrayResize(customMappings, size + 1);
+         customMappings[size].fromSymbol = mapping[0];
+         customMappings[size].toSymbol = mapping[1];
+
+         Print("Custom Symbol Mapping: ", mapping[0], " → ", mapping[1]);
+      }
+   }
+
+   if(ArraySize(customMappings) > 0)
+   {
+      Print("Loaded ", ArraySize(customMappings), " custom symbol mapping(s)");
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Expert initialization function                                    |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -248,6 +305,9 @@ int OnInit()
    Print("Account: ", AccountNumber);
    Print("Magic Number: ", MagicNumber);
    Print("Poll Interval: ", PollInterval, " seconds");
+
+   // Initialize custom symbol mappings
+   InitializeSymbolMappings();
 
    // Check if trading is allowed
    if(!IsTradeAllowed())
@@ -505,11 +565,21 @@ void ProcessSignalsResponse(string response)
 }
 
 //+------------------------------------------------------------------+
-//| Apply symbol mapping (prefix/suffix)                              |
+//| Apply symbol mapping (custom mappings, then prefix/suffix)        |
 //+------------------------------------------------------------------+
 string ApplySymbolMapping(string symbol)
 {
-   // Check if in skip list
+   // First, check custom symbol mappings
+   for(int i = 0; i < ArraySize(customMappings); i++)
+   {
+      if(customMappings[i].fromSymbol == symbol)
+      {
+         // Found a custom mapping, return the mapped symbol
+         return customMappings[i].toSymbol;
+      }
+   }
+
+   // No custom mapping found, check if in skip list for prefix/suffix
    if(SkipPrefixSuffixPairs != "")
    {
       string skipList[];
