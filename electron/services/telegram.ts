@@ -318,46 +318,8 @@ export class TelegramService extends EventEmitter {
 
       logger.debug(`Message ${message.id}: isReply=${isReply}, replyTo=${replyToMessageId}`)
 
-      // Check for global commands (close all / delete all) even without reply
-      const textLower = text.toLowerCase().trim()
-      const isCloseAll = channelConfig.additionalKeywords.closeAll.some(kw =>
-        new RegExp(`\\b${kw.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(textLower)
-      )
-      const isDeleteAll = channelConfig.additionalKeywords.deleteAll.some(kw =>
-        new RegExp(`\\b${kw.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(textLower)
-      )
-
-      if ((isCloseAll || isDeleteAll) && channelConfig.signalModifications.enabled) {
-        const modificationType = isCloseAll ? 'close_all' : 'cancel_pending'
-        logger.info(`Processing global command: ${modificationType}`)
-
-        // Create a fake modification for global command (no specific signal)
-        const modification = {
-          id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
-          signalId: 'global', // Special marker for global commands
-          messageId: message.id,
-          replyToMessageId: 0,
-          channelId: chatId,
-          type: modificationType as any,
-          rawText: text,
-          parsedAt: new Date().toISOString(),
-          status: 'pending' as const,
-          affectedTickets: [],
-          channelName: channelConfig.channelName,
-          requiresConfirmation: signalModificationParser.requiresConfirmation(
-            modificationType as any,
-            channelConfig
-          )
-        }
-
-        // Emit modification event
-        this.emit('modificationReceived', modification)
-
-        logger.info(`✅ GLOBAL COMMAND: ${modificationType}`)
-        return // Don't process as regular signal
-      }
-
-      // Try to process as modification if it's a reply
+      // PRIORITY 1: Process replies to specific signals FIRST (before global commands)
+      // This ensures that replying to a trade with "close" only closes THAT trade, not all trades
       if (isReply && replyToMessageId &&
           signalModificationParser.shouldProcessAsModification(isReply, channelConfig)) {
 
@@ -425,6 +387,46 @@ export class TelegramService extends EventEmitter {
         } else {
           logger.debug(`Original signal not found for reply ${replyToMessageId}`)
         }
+      }
+
+      // PRIORITY 2: Check for global commands (close all / delete all) - ONLY if NOT a reply
+      // This prevents replies from being treated as global commands
+      const textLower = text.toLowerCase().trim()
+      const isCloseAll = channelConfig.additionalKeywords.closeAll.some(kw =>
+        new RegExp(`\\b${kw.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(textLower)
+      )
+      const isDeleteAll = channelConfig.additionalKeywords.deleteAll.some(kw =>
+        new RegExp(`\\b${kw.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(textLower)
+      )
+
+      if ((isCloseAll || isDeleteAll) && !isReply && channelConfig.signalModifications.enabled) {
+        const modificationType = isCloseAll ? 'close_all' : 'cancel_pending'
+        logger.info(`Processing global command: ${modificationType}`)
+
+        // Create a fake modification for global command (no specific signal)
+        const modification = {
+          id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
+          signalId: 'global', // Special marker for global commands
+          messageId: message.id,
+          replyToMessageId: 0,
+          channelId: chatId,
+          type: modificationType as any,
+          rawText: text,
+          parsedAt: new Date().toISOString(),
+          status: 'pending' as const,
+          affectedTickets: [],
+          channelName: channelConfig.channelName,
+          requiresConfirmation: signalModificationParser.requiresConfirmation(
+            modificationType as any,
+            channelConfig
+          )
+        }
+
+        // Emit modification event
+        this.emit('modificationReceived', modification)
+
+        logger.info(`✅ GLOBAL COMMAND: ${modificationType}`)
+        return // Don't process as regular signal
       }
 
       // Save to database
