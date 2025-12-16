@@ -56,6 +56,9 @@ export interface SignalModification {
   pips?: number              // Pips distance
   percentage?: number        // Percentage (for partial close)
 
+  // Track original keyword intent (for ambiguous cases like close_partial)
+  originalAction?: 'close' | 'delete'  // Was it "close" or "delete" keyword?
+
   // Metadata
   rawText: string            // Original message text
   parsedAt: string           // When parsed

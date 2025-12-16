@@ -11,20 +11,11 @@ export interface CloudSyncConfig {
 
 export class CloudSyncService extends EventEmitter {
   private config: CloudSyncConfig
-  private accountNumber: string | null = null
   private syncInterval: NodeJS.Timeout | null = null
 
   constructor(config: CloudSyncConfig) {
     super()
     this.config = config
-  }
-
-  /**
-   * Set the trading account number for cloud sync
-   */
-  setAccountNumber(accountNumber: string) {
-    this.accountNumber = accountNumber
-    logger.info(`[Cloud Sync] Account number set: ${accountNumber}`)
   }
 
   /**
@@ -52,6 +43,7 @@ export class CloudSyncService extends EventEmitter {
 
   /**
    * Push signal to cloud backend and return the cloud signal ID
+   * The cloud server will distribute this signal to all accounts registered by the authenticated user
    */
   async pushSignal(signal: ParsedSignal, channelId?: string, channelName?: string): Promise<string | null> {
     if (!this.config.enabled) {
@@ -64,14 +56,8 @@ export class CloudSyncService extends EventEmitter {
       return null
     }
 
-    if (!this.accountNumber) {
-      logger.warn('[Cloud Sync] No account number set, skipping signal push')
-      return null
-    }
-
     try {
       const payload = {
-        accountNumber: this.accountNumber,
         action: signal.direction, // 'BUY' or 'SELL'
         symbol: signal.symbol,
         entryPrice: signal.entryPrice || null,
@@ -103,30 +89,6 @@ export class CloudSyncService extends EventEmitter {
         const errorText = await response.text()
         logger.error(`[Cloud Sync] Failed to push signal: HTTP ${response.status} ${response.statusText}`)
         logger.error(`[Cloud Sync] Response body: ${errorText}`)
-
-        // Emit error event for UI notification when account not found
-        if (response.status === 404) {
-          try {
-            const errorData = JSON.parse(errorText)
-            if (errorData.error === 'Trading account not found or inactive') {
-              this.emit('accountError', {
-                accountNumber: this.accountNumber,
-                message: 'Trading account not found or inactive',
-                action: 'Please register this account on the website'
-              })
-            }
-          } catch (e) {
-            // Error text wasn't JSON, check if it contains the error message
-            if (errorText.includes('Trading account not found or inactive')) {
-              this.emit('accountError', {
-                accountNumber: this.accountNumber,
-                message: 'Trading account not found or inactive',
-                action: 'Please register this account on the website'
-              })
-            }
-          }
-        }
-
         return null
       }
 
@@ -145,6 +107,7 @@ export class CloudSyncService extends EventEmitter {
 
   /**
    * Push modification command to cloud backend
+   * The cloud server will distribute this modification to all accounts registered by the authenticated user
    */
   async pushModification(modification: any): Promise<boolean> {
     if (!this.config.enabled) {
@@ -154,11 +117,6 @@ export class CloudSyncService extends EventEmitter {
 
     if (!this.config.authToken) {
       logger.warn('[Cloud Sync] No auth token, skipping modification push')
-      return false
-    }
-
-    if (!this.accountNumber) {
-      logger.warn('[Cloud Sync] No account number set, skipping modification push')
       return false
     }
 
@@ -179,10 +137,16 @@ export class CloudSyncService extends EventEmitter {
         'remove_sl': 'remove_sl'
       }
 
-      const eaType = typeMapping[modification.type] || modification.type
+      let eaType = typeMapping[modification.type] || modification.type
+
+      // Special handling for close_partial: check originalAction
+      // If originalAction is 'delete', send 'delete' command to EA (for pending orders)
+      if (modification.type === 'close_partial' && modification.originalAction === 'delete') {
+        eaType = 'delete'
+        logger.debug('[Cloud Sync] close_partial with originalAction=delete -> sending "delete" command')
+      }
 
       const payload = {
-        accountNumber: this.accountNumber,
         type: eaType,
         signalId: modification.signalId?.toString() || null,
         channelId: modification.channelId?.toString() || null,
@@ -213,30 +177,6 @@ export class CloudSyncService extends EventEmitter {
         const errorText = await response.text()
         logger.error(`[Cloud Sync] Failed to push modification: HTTP ${response.status} ${response.statusText}`)
         logger.error(`[Cloud Sync] Response body: ${errorText}`)
-
-        // Emit error event for UI notification when account not found
-        if (response.status === 404) {
-          try {
-            const errorData = JSON.parse(errorText)
-            if (errorData.error === 'Trading account not found or inactive') {
-              this.emit('accountError', {
-                accountNumber: this.accountNumber,
-                message: 'Trading account not found or inactive',
-                action: 'Please register this account on the website'
-              })
-            }
-          } catch (e) {
-            // Error text wasn't JSON, check if it contains the error message
-            if (errorText.includes('Trading account not found or inactive')) {
-              this.emit('accountError', {
-                accountNumber: this.accountNumber,
-                message: 'Trading account not found or inactive',
-                action: 'Please register this account on the website'
-              })
-            }
-          }
-        }
-
         return false
       }
 
@@ -282,7 +222,7 @@ export class CloudSyncService extends EventEmitter {
    * Start periodic sync of executed trades from cloud
    */
   startTradeSync(intervalMs: number = 30000) {
-    if (!this.config.enabled || !this.config.authToken || !this.accountNumber) {
+    if (!this.config.enabled || !this.config.authToken) {
       logger.warn('[Cloud Sync] Cannot start trade sync - missing configuration')
       return
     }
@@ -313,18 +253,19 @@ export class CloudSyncService extends EventEmitter {
   }
 
   /**
-   * Fetch executed trades from cloud and store in local database
+   * Fetch executed trades from cloud for all user's accounts and store in local database
    */
   async syncExecutedTrades(): Promise<void> {
-    if (!this.config.enabled || !this.config.authToken || !this.accountNumber) {
+    if (!this.config.enabled || !this.config.authToken) {
       return
     }
 
     try {
       logger.debug(`[Cloud Sync] Syncing executed trades from cloud`)
 
+      // Fetch executed trades for all accounts belonging to the authenticated user
       const response = await fetch(
-        `${this.config.apiUrl}/api/signals/executed?account=${this.accountNumber}`,
+        `${this.config.apiUrl}/api/signals/executed`,
         {
           method: 'GET',
           headers: {
@@ -353,7 +294,7 @@ export class CloudSyncService extends EventEmitter {
         // Check if we already have this trade
         const existing = db.exec(
           'SELECT id FROM active_trades WHERE ticket_number = ? AND account_number = ?',
-          [signal.ticketNumber, this.accountNumber]
+          [signal.ticketNumber, signal.accountNumber]
         )
 
         if (existing.length > 0 && existing[0].values.length > 0) {
@@ -375,8 +316,8 @@ export class CloudSyncService extends EventEmitter {
           signal.stopLoss,
           signal.takeProfit,
           signal.lotSize,
-          this.accountNumber,
-          'MT5', // Assume MT5 for cloud sync
+          signal.accountNumber, // Now comes from the signal itself
+          signal.platform || 'MT5',
           signal.channelId,
           signal.executedAt || new Date().toISOString(),
           'open',

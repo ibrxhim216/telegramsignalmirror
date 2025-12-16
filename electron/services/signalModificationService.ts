@@ -201,6 +201,29 @@ export class SignalModificationService extends EventEmitter {
           logger.warn('No percentage specified for partial close')
           return null
         }
+
+        // Check if original action was "delete" - if so, send delete command for pending orders
+        if (modification.originalAction === 'delete') {
+          const pendingTrades = trades.filter(t => t.status === 'pending')
+
+          if (pendingTrades.length > 0) {
+            logger.info(`Delete action detected for ${pendingTrades.length} pending order(s)`)
+            return {
+              type: 'delete',
+              accountNumber,
+              platform,
+              trades: pendingTrades,
+              reason: modification.percentage === 100
+                ? 'Delete pending order'
+                : `Delete ${modification.percentage}% of pending`
+            }
+          } else {
+            // No pending trades found, log warning and fall back to close
+            logger.warn('Delete action requested but no pending trades found, falling back to close')
+          }
+        }
+
+        // Default: Close command for active positions
         return {
           type: 'close',
           accountNumber,

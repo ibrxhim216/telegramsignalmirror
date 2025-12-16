@@ -20,7 +20,7 @@ export { parsePercentage, parsePrice, parsePips } from '../types/signalModificat
 
 export class SignalModificationParser {
   /**
-   * Parse a modification message
+   * Parse a modification message (ONLY called for replies to specific signals)
    */
   parseModification(
     text: string,
@@ -33,7 +33,8 @@ export class SignalModificationParser {
     const textLower = text.toLowerCase().trim()
 
     // Try to match each modification type
-    const modificationType = this.detectModificationType(textLower, config)
+    // IMPORTANT: Pass isReply=true since this function is ONLY called for replies
+    const modificationType = this.detectModificationType(textLower, config, true)
 
     if (!modificationType) {
       logger.debug(`No modification detected in message: ${text.substring(0, 50)}`)
@@ -67,8 +68,20 @@ export class SignalModificationParser {
           const { parsePercentage } = require('../types/signalModification')
           modification.percentage = parsePercentage(textLower)
           if (!modification.percentage) {
-            logger.warn(`Could not parse percentage from: ${text}`)
-            return null
+            // If no percentage found, default to 100% (close entire position)
+            // This handles cases like replying with just "close" to a specific trade
+            logger.info(`No percentage found in "${text}", defaulting to 100%`)
+            modification.percentage = 100
+          }
+
+          // Track whether this was "close" or "delete" intent
+          // This helps the modification service send the correct command type to EA
+          if (this.matchesKeywords(textLower, config.updateKeywords.deletePending)) {
+            modification.originalAction = 'delete'
+            logger.debug('Original action: delete (pending order)')
+          } else {
+            modification.originalAction = 'close'
+            logger.debug('Original action: close (active position)')
           }
         }
         break
@@ -150,7 +163,8 @@ export class SignalModificationParser {
    */
   private detectModificationType(
     text: string,
-    config: ChannelConfig
+    config: ChannelConfig,
+    isReply: boolean = false
   ): ModificationType | null {
     const keywords = config.updateKeywords
     const additional = config.additionalKeywords
@@ -162,25 +176,30 @@ export class SignalModificationParser {
       return 'move_to_breakeven'
     }
 
-    // 2. Close All (check before close partial)
-    if (this.matchesKeywords(text, additional.closeAll) ||
-        this.matchesKeywords(text, keywords.closeFull)) {
+    // 2. Close All - ONLY check if NOT a reply to specific signal
+    //    If it's a reply, skip this check entirely (handled below as close_partial)
+    if (!isReply && (this.matchesKeywords(text, additional.closeAll) ||
+                     this.matchesKeywords(text, keywords.closeFull))) {
       return 'close_all'
     }
 
-    // 3. Close Partial
+    // 3. Close Partial OR close/delete keywords on a reply (treat as close 100%)
+    //    This handles both active trades and pending orders on replies
     if (this.matchesKeywords(text, keywords.closePartial) ||
         this.matchesKeywords(text, keywords.closeHalf) ||
         this.matchesKeywords(text, keywords.closeTP1) ||
         this.matchesKeywords(text, keywords.closeTP2) ||
         this.matchesKeywords(text, keywords.closeTP3) ||
-        this.matchesKeywords(text, keywords.closeTP4)) {
+        this.matchesKeywords(text, keywords.closeTP4) ||
+        (isReply && this.matchesKeywords(text, keywords.closeFull)) ||
+        (isReply && this.matchesKeywords(text, keywords.deletePending))) {
       return 'close_partial'
     }
 
-    // 4. Cancel Pending
-    if (this.matchesKeywords(text, keywords.deletePending) ||
-        this.matchesKeywords(text, additional.deleteAll)) {
+    // 4. Cancel Pending - ONLY check if NOT a reply to specific signal
+    //    If it's a reply, skip this check (handled above as close_partial)
+    if (!isReply && (this.matchesKeywords(text, keywords.deletePending) ||
+                     this.matchesKeywords(text, additional.deleteAll))) {
       return 'cancel_pending'
     }
 
