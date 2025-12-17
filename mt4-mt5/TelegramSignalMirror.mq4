@@ -1701,22 +1701,124 @@ string ExtractValue(string json, string key)
 
    startPos += StringLen(searchKey);
 
-   // Skip whitespace and quotes
-   while(StringGetChar(json, startPos) == ' ' || StringGetChar(json, startPos) == '"')
+   // Skip whitespace
+   while(StringGetChar(json, startPos) == ' ')
    {
       startPos++;
    }
 
+   // Check value type
+   int firstChar = StringGetChar(json, startPos);
+   bool isQuoted = (firstChar == '"');
+   bool isArray = (firstChar == '[');
+   bool isObject = (firstChar == '{');
+
    int endPos = startPos;
-   while(endPos < StringLen(json))
+
+   if(isQuoted)
    {
-      int ch = StringGetChar(json, endPos);
-      if(ch == ',' || ch == '}' || ch == '"' || ch == ' ')
-         break;
-      endPos++;
+      // For quoted strings, extract until closing quote
+      startPos++; // Skip opening quote
+      endPos = startPos;
+      while(endPos < StringLen(json))
+      {
+         int ch = StringGetChar(json, endPos);
+         if(ch == '"')
+            break;
+         endPos++;
+      }
+   }
+   else if(isArray)
+   {
+      // For arrays, extract until matching closing bracket
+      int bracketDepth = 0;
+      while(endPos < StringLen(json))
+      {
+         int ch = StringGetChar(json, endPos);
+         if(ch == '[') bracketDepth++;
+         if(ch == ']') bracketDepth--;
+         endPos++;
+         if(bracketDepth == 0)
+            break;
+      }
+   }
+   else if(isObject)
+   {
+      // For objects, extract until matching closing brace
+      int braceDepth = 0;
+      while(endPos < StringLen(json))
+      {
+         int ch = StringGetChar(json, endPos);
+         if(ch == '{') braceDepth++;
+         if(ch == '}') braceDepth--;
+         endPos++;
+         if(braceDepth == 0)
+            break;
+      }
+   }
+   else
+   {
+      // For non-quoted values (numbers, booleans, null), extract until delimiter
+      while(endPos < StringLen(json))
+      {
+         int ch = StringGetChar(json, endPos);
+         if(ch == ',' || ch == '}' || ch == ']' || ch == ' ')
+            break;
+         endPos++;
+      }
    }
 
    return StringSubstr(json, startPos, endPos - startPos);
+}
+
+//+------------------------------------------------------------------+
+//| Parse tickets array from JSON format [123,456,789]               |
+//+------------------------------------------------------------------+
+int ParseTicketsArray(string ticketsStr, int &tickets[])
+{
+   // Remove brackets and spaces
+   StringReplace(ticketsStr, "[", "");
+   StringReplace(ticketsStr, "]", "");
+   StringReplace(ticketsStr, " ", "");
+
+   if(StringLen(ticketsStr) == 0)
+      return 0;
+
+   // Split by comma
+   string ticketStrings[];
+   int count = StringSplit(ticketsStr, ',', ticketStrings);
+
+   if(count <= 0)
+      return 0;
+
+   ArrayResize(tickets, count);
+
+   for(int i = 0; i < count; i++)
+   {
+      tickets[i] = StrToInteger(ticketStrings[i]);
+   }
+
+   return count;
+}
+
+//+------------------------------------------------------------------+
+//| Convert tickets array to string for logging                       |
+//+------------------------------------------------------------------+
+string TicketsArrayToString(int &tickets[], int count)
+{
+   if(count == 0)
+      return "[]";
+
+   string result = "[";
+   for(int i = 0; i < count; i++)
+   {
+      result += IntegerToString(tickets[i]);
+      if(i < count - 1)
+         result += ",";
+   }
+   result += "]";
+
+   return result;
 }
 
 //+------------------------------------------------------------------+
@@ -1859,8 +1961,23 @@ void ProcessModification(string modJson)
    }
    else if(type == "delete")
    {
-      // Cancel pending orders
-      ApplyCancelPending(reason);
+      // Cancel pending orders - extract specific tickets
+      string ticketsStr = ExtractValue(modJson, "tickets");
+      Print("[MOD DEBUG] Extracted tickets string: '", ticketsStr, "'");
+
+      // Parse tickets array from JSON format [123,456,789]
+      int tickets[];
+      int ticketCount = ParseTicketsArray(ticketsStr, tickets);
+
+      if(ticketCount > 0)
+      {
+         Print("[MOD DEBUG] Parsed ", ticketCount, " ticket(s) to delete");
+         ApplyCancelPending(tickets, ticketCount, reason);
+      }
+      else
+      {
+         Print("⚠️  No tickets specified in delete command - skipping for safety");
+      }
    }
    else if(type == "breakeven")
    {
@@ -2069,34 +2186,57 @@ void ApplyBreakeven(string reason)
 //+------------------------------------------------------------------+
 //| Apply cancel pending orders modification                          |
 //+------------------------------------------------------------------+
-void ApplyCancelPending(string reason)
+void ApplyCancelPending(int &specificTickets[], int ticketCount, string reason)
 {
    int canceledCount = 0;
 
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-   {
-      if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-      {
-         if(OrderMagicNumber() == MagicNumber && OrderType() > 1)
-         {
-            int ticket = OrderTicket();
+   Print("[DELETE] Deleting ", ticketCount, " specific ticket(s): ", TicketsArrayToString(specificTickets, ticketCount));
 
-            if(OrderDelete(ticket))
+   // Only delete the specific tickets provided
+   for(int i = 0; i < ticketCount; i++)
+   {
+      int ticket = specificTickets[i];
+
+      // Select the order by ticket
+      if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      {
+         if(OrderMagicNumber() == MagicNumber)
+         {
+            if(OrderType() > 1) // Pending order
             {
-               Print("✅ Canceled pending order: Ticket ", ticket, " - ", reason);
-               canceledCount++;
+               if(OrderDelete(ticket))
+               {
+                  Print("✅ Canceled pending order: Ticket ", ticket, " - ", reason);
+                  canceledCount++;
+               }
+               else
+               {
+                  Print("❌ Failed to cancel pending order: Ticket ", ticket, " - Error: ", GetLastError());
+               }
+            }
+            else
+            {
+               Print("⚠️  Ticket ", ticket, " is not a pending order - skipping");
             }
          }
+         else
+         {
+            Print("⚠️  Ticket ", ticket, " has different MagicNumber - skipping");
+         }
+      }
+      else
+      {
+         Print("⚠️  Ticket ", ticket, " not found or already deleted");
       }
    }
 
    if(canceledCount > 0)
    {
-      Print("✅ Canceled ", canceledCount, " pending order(s)");
+      Print("✅ Canceled ", canceledCount, " of ", ticketCount, " pending order(s)");
    }
    else
    {
-      Print("⚠️  No pending orders found to cancel");
+      Print("⚠️  No pending orders were canceled");
    }
 }
 
