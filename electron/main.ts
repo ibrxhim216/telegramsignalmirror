@@ -160,17 +160,31 @@ app.whenReady().then(async () => {
       // Get primary trading account
       const primaryAccount = accountService.getPrimaryAccount()
       if (!primaryAccount) {
-        logger.warn('No active trading account configured, skipping update command')
-        return
-      }
+        // In cloud-only mode, still process global commands (closeAll, deleteAll)
+        const isGlobalCommand = signal.parsed.update?.type === 'closeAll' || signal.parsed.update?.type === 'deleteAll'
 
-      // Process the update with modification handler
-      tradeModificationHandler.processUpdate(
-        signal.parsed,
-        signal.channelId,
-        primaryAccount.account_number,
-        primaryAccount.platform as 'MT4' | 'MT5'
-      )
+        if (isGlobalCommand) {
+          logger.info('No local account configured, but processing global command for cloud distribution')
+          // Use dummy account values - tradeModificationHandler will emit cloudOnlyModification
+          tradeModificationHandler.processUpdate(
+            signal.parsed,
+            signal.channelId,
+            'cloud', // Dummy account number
+            'MT5'    // Dummy platform
+          )
+        } else {
+          logger.warn('No active trading account configured, skipping non-global update command')
+          return
+        }
+      } else {
+        // Process the update with modification handler
+        tradeModificationHandler.processUpdate(
+          signal.parsed,
+          signal.channelId,
+          primaryAccount.account_number,
+          primaryAccount.platform as 'MT4' | 'MT5'
+        )
+      }
     } else {
       // It's a new signal - process it
       // Cloud sync will distribute to all registered accounts automatically
@@ -220,15 +234,15 @@ app.whenReady().then(async () => {
                 takeProfits: [splitOrder.takeProfit],
                 comment: splitOrder.comment,
                 groupId: splitOrder.groupId,
-              } as any, signal.config, signal.id, signal.channelId, signal.channelName)
+              } as any, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
             }
           } else {
             // Fallback to single order
-            await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName)
+            await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
           }
         } else {
           // Single TP or multi-TP disabled - send as-is
-          await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName)
+          await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
         }
       }
     }
@@ -246,6 +260,33 @@ app.whenReady().then(async () => {
       type: 'modification',
       command
     })
+  })
+
+  // Listen for cloud-only modifications from trade modification handler (global commands)
+  tradeModificationHandler.on('cloudOnlyModification', async (data: any) => {
+    logger.info(`☁️ Cloud-only global command: ${data.type}`)
+
+    // Push directly to cloud - cloud will find all trades for all user accounts
+    if (cloudSync) {
+      try {
+        await cloudSync.pushModification({
+          id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
+          signalId: null, // null indicates global command
+          messageId: 0,
+          replyToMessageId: 0,
+          channelId: data.channelId || 0,
+          type: data.type,
+          rawText: data.reason || data.type,
+          parsedAt: new Date().toISOString(),
+          status: 'pending' as const,
+          affectedTickets: [],
+          percentage: 100
+        })
+        logger.info(`✅ Global command pushed to cloud successfully`)
+      } catch (error: any) {
+        logger.error(`Failed to push global command to cloud: ${error.message}`)
+      }
+    }
   })
 
   // Listen for signal modifications (reply-based) from Telegram
@@ -271,10 +312,9 @@ app.whenReady().then(async () => {
       modification: modification
     })
 
-    // Push modification to cloud for MT5 EA to poll
-    if (cloudSync) {
-      await cloudSync.pushModification(modification)
-    }
+    // NOTE: Do NOT push to cloud here - we need to look up trades first!
+    // Cloud push happens in signalModificationService.on('modificationCommand') below
+    // after trades are looked up and tickets are populated
 
     // Check if requires confirmation
     if (modification.requiresConfirmation) {
@@ -290,17 +330,62 @@ app.whenReady().then(async () => {
   })
 
   // Listen for modification commands from signal modification service
-  signalModificationService.on('modificationCommand', (command) => {
+  signalModificationService.on('modificationCommand', async (command) => {
     logger.info(`📤 Signal modification command: ${command.type} for ${command.trades.length} trade(s)`)
 
     // Add to API server queue for EA to poll
     apiServer?.addModificationCommand(command)
+
+    // Push to cloud AFTER trades are looked up and tickets are populated
+    if (cloudSync && command.trades && command.trades.length > 0) {
+      try {
+        const tickets = command.trades.map(t => t.ticket)
+        logger.debug(`[Cloud Push] Sending modification with ${tickets.length} ticket(s): ${tickets.join(', ')}`)
+
+        // Get signal ID from first trade (all trades in a command should have same signal ID)
+        const signalId = command.trades[0]?.signalId || ''
+
+        await cloudSync.pushModification({
+          id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
+          signalId,
+          messageId: 0, // Not available here
+          replyToMessageId: 0,
+          channelId: 0, // Not available here
+          type: command.type as any,
+          rawText: command.reason || '',
+          parsedAt: new Date().toISOString(),
+          status: 'pending' as const,
+          affectedTickets: tickets,
+          percentage: command.percentage
+        })
+      } catch (error: any) {
+        logger.error(`Failed to push modification to cloud: ${error.message}`)
+      }
+    } else if (command.trades.length === 0) {
+      logger.warn(`[Cloud Push] Skipping cloud push - no trades found for modification`)
+    }
 
     // Broadcast to UI
     wsServer?.broadcast({
       type: 'signalModification',
       command
     })
+  })
+
+  // Listen for cloud-only modifications (when no local trades exist)
+  signalModificationService.on('cloudOnlyModification', async (data: any) => {
+    const { modification, channelName } = data
+    logger.info(`☁️ Cloud-only modification: ${modification.type} for signal ${modification.signalId}`)
+
+    // Push directly to cloud - let cloud API route to correct accounts
+    if (cloudSync) {
+      try {
+        await cloudSync.pushModification(modification)
+        logger.info(`✅ Cloud-only modification pushed successfully`)
+      } catch (error: any) {
+        logger.error(`Failed to push cloud-only modification: ${error.message}`)
+      }
+    }
   })
 
   // TSC Protector event listeners

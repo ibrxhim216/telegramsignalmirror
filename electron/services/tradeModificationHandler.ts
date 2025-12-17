@@ -397,7 +397,16 @@ export class TradeModificationHandler extends EventEmitter {
     const trades = tradeManager.getTradesByChannel(channelId, accountNumber)
 
     if (trades.length === 0) {
-      logger.warn(`No active trades found for channel ${channelId}`)
+      logger.warn(`No active trades found locally for channel ${channelId}`)
+
+      // In cloud-only mode, emit cloudOnlyModification event
+      logger.info(`Emitting cloud-only modification: close_all`)
+      this.emit('cloudOnlyModification', {
+        type: 'close_all',
+        signalId: null, // null signalId indicates global command
+        channelId,
+        reason: 'Close all trades'
+      })
       return
     }
 
@@ -427,7 +436,16 @@ export class TradeModificationHandler extends EventEmitter {
         .filter(t => t.status === 'pending')
 
     if (trades.length === 0) {
-      logger.warn(`No pending orders found for channel ${channelId}`)
+      logger.warn(`No pending orders found locally for channel ${channelId}`)
+
+      // In cloud-only mode, emit cloudOnlyModification event
+      logger.info(`Emitting cloud-only modification: delete (all pending)`)
+      this.emit('cloudOnlyModification', {
+        type: 'delete',
+        signalId: null, // null signalId indicates global command
+        channelId,
+        reason: 'Delete all pending orders'
+      })
       return
     }
 
