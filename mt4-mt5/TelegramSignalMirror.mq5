@@ -1098,10 +1098,18 @@ void ProcessSignal(string signalJson)
          actualEntryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       }
 
-      // Send ticket and entry price in ACK
-      string ackMessage = IntegerToString(ticket) + "|" + DoubleToString(actualEntryPrice, 5);
+      // Determine order status: PENDING (waiting to be filled) or FILLED (already filled)
+      string orderStatus = "FILLED"; // Default to FILLED
+      if(OrderSelect(ticket))
+      {
+         // Ticket found in pending orders - it's a LIMIT/STOP order waiting to be filled
+         orderStatus = "PENDING";
+      }
+
+      // Send ticket, entry price, and order status in ACK
+      string ackMessage = IntegerToString(ticket) + "|" + DoubleToString(actualEntryPrice, 5) + "|" + orderStatus;
       AcknowledgeSignal(signalId, "success", ackMessage);
-      Print("✅ Trade executed successfully! Ticket: ", ticket);
+      Print("✅ Trade executed successfully! Ticket: ", ticket, " | Status: ", orderStatus);
    }
    else
    {
