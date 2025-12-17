@@ -334,6 +334,7 @@ export class TelegramService extends EventEmitter {
 
         if (originalSignalResult.length > 0 && originalSignalResult[0].values.length > 0) {
           const originalSignalId = String(originalSignalResult[0].values[0][0])
+          logger.info(`[REPLY DEBUG] Found original signal ID: ${originalSignalId} for message_id: ${replyToMessageId}`)
 
           // Try to parse as modification
           const modification = signalModificationParser.parseModification(
@@ -389,45 +390,8 @@ export class TelegramService extends EventEmitter {
         }
       }
 
-      // PRIORITY 2: Check for global commands (close all / delete all) - ONLY if NOT a reply
-      // This prevents replies from being treated as global commands
-      const textLower = text.toLowerCase().trim()
-      const isCloseAll = channelConfig.additionalKeywords.closeAll.some(kw =>
-        new RegExp(`\\b${kw.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(textLower)
-      )
-      const isDeleteAll = channelConfig.additionalKeywords.deleteAll.some(kw =>
-        new RegExp(`\\b${kw.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(textLower)
-      )
-
-      if ((isCloseAll || isDeleteAll) && !isReply && channelConfig.signalModifications.enabled) {
-        const modificationType = isCloseAll ? 'close_all' : 'cancel_pending'
-        logger.info(`Processing global command: ${modificationType}`)
-
-        // Create a fake modification for global command (no specific signal)
-        const modification = {
-          id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
-          signalId: 'global', // Special marker for global commands
-          messageId: message.id,
-          replyToMessageId: 0,
-          channelId: chatId,
-          type: modificationType as any,
-          rawText: text,
-          parsedAt: new Date().toISOString(),
-          status: 'pending' as const,
-          affectedTickets: [],
-          channelName: channelConfig.channelName,
-          requiresConfirmation: signalModificationParser.requiresConfirmation(
-            modificationType as any,
-            channelConfig
-          )
-        }
-
-        // Emit modification event
-        this.emit('modificationReceived', modification)
-
-        logger.info(`✅ GLOBAL COMMAND: ${modificationType}`)
-        return // Don't process as regular signal
-      }
+      // PRIORITY 2: Global commands (close all / delete all) will be processed by enhancedSignalParser
+      // as update commands, so we don't need special handling here - just let them fall through
 
       // Save to database
       const db = getDatabase()

@@ -218,8 +218,15 @@ export class EnhancedSignalParser {
    * Detect if message is an update command
    */
   private detectUpdateType(text: string, config: ChannelConfig): string | null {
-    const keywords = config.updateKeywords
+    // Check global commands FIRST (more specific) before regular update keywords
+    const addKeywords = config.additionalKeywords
+    if (this.matchesKeywords(text, addKeywords.closeAll)) return 'closeAll'
+    if (this.matchesKeywords(text, addKeywords.deleteAll)) return 'deleteAll'
+    if (this.matchesKeywords(text, addKeywords.layer)) return 'layer'
+    if (this.matchesKeywords(text, addKeywords.removeSL)) return 'removeSL'
 
+    // Check regular update keywords
+    const keywords = config.updateKeywords
     if (this.matchesKeywords(text, keywords.closeTP1)) return 'closeTP1'
     if (this.matchesKeywords(text, keywords.closeTP2)) return 'closeTP2'
     if (this.matchesKeywords(text, keywords.closeTP3)) return 'closeTP3'
@@ -236,13 +243,6 @@ export class EnhancedSignalParser {
     if (this.matchesKeywords(text, keywords.setTP)) return 'setTP'
     if (this.matchesKeywords(text, keywords.setSL)) return 'setSL'
     if (this.matchesKeywords(text, keywords.deletePending)) return 'deletePending'
-
-    // Additional keywords
-    const addKeywords = config.additionalKeywords
-    if (this.matchesKeywords(text, addKeywords.layer)) return 'layer'
-    if (this.matchesKeywords(text, addKeywords.closeAll)) return 'closeAll'
-    if (this.matchesKeywords(text, addKeywords.deleteAll)) return 'deleteAll'
-    if (this.matchesKeywords(text, addKeywords.removeSL)) return 'removeSL'
 
     return null
   }
