@@ -1781,9 +1781,10 @@ string ExtractValue(string json, string key)
 //+------------------------------------------------------------------+
 int ParseTicketsArray(string ticketsStr, ulong &tickets[])
 {
-   // Remove brackets and spaces
+   // Remove brackets, spaces, and quotes
    StringReplace(ticketsStr, "[", "");
    StringReplace(ticketsStr, "]", "");
+   StringReplace(ticketsStr, "\"", "");
    StringReplace(ticketsStr, " ", "");
 
    if(StringLen(ticketsStr) == 0)
