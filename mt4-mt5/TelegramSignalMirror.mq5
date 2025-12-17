@@ -1832,6 +1832,15 @@ string TicketsArrayToString(ulong &tickets[], int count)
 //+------------------------------------------------------------------+
 void PollModifications()
 {
+   static datetime lastDebugLog = 0;
+   bool shouldLog = (TimeCurrent() - lastDebugLog >= 10); // Log every 10 seconds
+
+   if(shouldLog)
+   {
+      Print("[MOD POLL] Polling for modifications...");
+      lastDebugLog = TimeCurrent();
+   }
+
    string url = ApiServerURL + "/api/modifications/pending?account=" + AccountNumber;
    string headers = "Content-Type: application/json\r\n";
    char data[];
@@ -1846,14 +1855,22 @@ void PollModifications()
    if(res == 403)
    {
       // Account not authorized - already handled in main polling, don't spam
+      if(shouldLog) Print("[MOD POLL] Account not authorized (403)");
       return;
    }
 
    if(res == -1 || res != 200)
    {
-      // Silently fail - modifications are optional
+      // Log errors for debugging
+      if(shouldLog)
+      {
+         Print("[MOD POLL] HTTP request failed: ", res);
+         if(res == -1) Print("[MOD POLL] Last error: ", GetLastError());
+      }
       return;
    }
+
+   if(shouldLog) Print("[MOD POLL] Response received: ", res);
 
    // Parse response
    string response = CharArrayToString(result);
@@ -1862,10 +1879,13 @@ void PollModifications()
    if(StringFind(response, "\"modifications\":[]") >= 0)
    {
       // No modifications in queue
+      if(shouldLog) Print("[MOD POLL] No modifications in queue");
       return;
    }
 
    // Process modifications
+   Print("[MOD POLL] Modifications found! Processing...");
+   Print("[MOD POLL] Response: ", response);
    ProcessModificationsResponse(response);
 }
 
