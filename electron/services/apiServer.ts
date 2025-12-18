@@ -326,27 +326,68 @@ export class ApiServer {
       takeProfit5: signal.takeProfits && signal.takeProfits.length > 4 ? signal.takeProfits[4] : 0,
     }
 
-    // Push to cloud first to get the cloud signal ID
+    // Push to cloud - if signal has multiple TPs, push separate signals for each TP
     let cloudSignalId: string | undefined
     if (this.cloudSyncService) {
       try {
-        const cloudId = await this.cloudSyncService.pushSignal(
-          signal,
-          channelId?.toString(),
-          channelName,
-          telegramMessageId
-        )
-        if (cloudId) {
-          cloudSignalId = cloudId
-          logger.debug(`Got cloud signal ID: ${cloudSignalId}`)
+        // Check if signal has multiple TPs
+        const tpCount = signal.takeProfits?.length || 0
 
-          // Store cloud signal ID in database if we have a dbSignalId
-          if (dbSignalId) {
+        if (tpCount > 1) {
+          // Multiple TPs - push separate signal for each TP level
+          logger.info(`📊 Signal has ${tpCount} TPs - pushing ${tpCount} separate signals to cloud`)
+
+          for (let i = 0; i < tpCount; i++) {
+            // Create a copy of signal with only this TP
+            const singleTPSignal: ParsedSignal = {
+              ...signal,
+              takeProfits: [signal.takeProfits![i]]
+            }
+
+            const cloudId = await this.cloudSyncService.pushSignal(
+              singleTPSignal,
+              channelId?.toString(),
+              channelName,
+              telegramMessageId
+            )
+
+            if (cloudId && i === 0) {
+              // Store first cloud signal ID as primary
+              cloudSignalId = cloudId
+              logger.debug(`Got cloud signal ID for TP${i + 1}: ${cloudId}`)
+            } else if (cloudId) {
+              logger.debug(`Got cloud signal ID for TP${i + 1}: ${cloudId}`)
+            }
+          }
+
+          // Store primary cloud signal ID in database
+          if (cloudSignalId && dbSignalId) {
             const { getDatabase, saveDatabase } = require('../database')
             const db = getDatabase()
             db.run('UPDATE signals SET cloud_signal_id = ? WHERE id = ?', [cloudSignalId, dbSignalId])
             saveDatabase()
             logger.debug(`Stored cloud signal ID ${cloudSignalId} for DB signal ${dbSignalId}`)
+          }
+        } else {
+          // Single or no TP - push normally
+          const cloudId = await this.cloudSyncService.pushSignal(
+            signal,
+            channelId?.toString(),
+            channelName,
+            telegramMessageId
+          )
+          if (cloudId) {
+            cloudSignalId = cloudId
+            logger.debug(`Got cloud signal ID: ${cloudSignalId}`)
+
+            // Store cloud signal ID in database if we have a dbSignalId
+            if (dbSignalId) {
+              const { getDatabase, saveDatabase } = require('../database')
+              const db = getDatabase()
+              db.run('UPDATE signals SET cloud_signal_id = ? WHERE id = ?', [cloudSignalId, dbSignalId])
+              saveDatabase()
+              logger.debug(`Stored cloud signal ID ${cloudSignalId} for DB signal ${dbSignalId}`)
+            }
           }
         }
       } catch (error: any) {
