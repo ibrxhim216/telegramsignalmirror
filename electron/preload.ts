@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('electron', {
     exportConfig: (channelId: number) => ipcRenderer.invoke('channelConfig:export', channelId),
     importConfig: (channelId: number, configJson: string) => ipcRenderer.invoke('channelConfig:import', channelId, configJson),
     clearConfirmationRequirements: (channelId: number) => ipcRenderer.invoke('channelConfig:clearConfirmationRequirements', channelId),
+    detectKeywords: (exampleSignal: string) => ipcRenderer.invoke('channelConfig:detectKeywords', exampleSignal),
   },
 
   // TSC Protector
@@ -202,6 +203,7 @@ declare global {
         exportConfig: (channelId: number) => Promise<{ success: boolean; json?: string; error?: string }>
         importConfig: (channelId: number, configJson: string) => Promise<{ success: boolean; error?: string }>
         clearConfirmationRequirements: (channelId: number) => Promise<{ success: boolean; error?: string }>
+        detectKeywords: (exampleSignal: string) => Promise<{ success: boolean; detected?: any; error?: string }>
       }
       protector: {
         getSettings: (accountNumber: string, platform: string) => Promise<{ success: boolean; settings?: any; error?: string }>

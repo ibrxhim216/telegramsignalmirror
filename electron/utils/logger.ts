@@ -12,7 +12,7 @@ export const logger = winston.createLogger({
     winston.format.splat(),
     winston.format.json()
   ),
-  defaultMeta: { service: 'telegram-signal-copier' },
+  defaultMeta: { service: 'telegram-signal-mirror' },
   transports: [
     // Write all logs with importance level of 'error' or less to error.log
     new winston.transports.File({

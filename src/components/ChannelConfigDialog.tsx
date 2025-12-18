@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Save, Upload, Download, RotateCcw } from 'lucide-react'
+import { X, Save, Upload, Download, RotateCcw, Sparkles } from 'lucide-react'
 
 interface ChannelConfig {
   channelId: number
@@ -71,6 +71,10 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, on
   const [activeTab, setActiveTab] = useState<'signal' | 'update' | 'additional'>('signal')
   const [config, setConfig] = useState<ChannelConfig | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showKeywordGenerator, setShowKeywordGenerator] = useState(false)
+  const [exampleSignal, setExampleSignal] = useState('')
+  const [detectedKeywords, setDetectedKeywords] = useState<any>(null)
+  const [detecting, setDetecting] = useState(false)
 
   useEffect(() => {
     if (isOpen && channelId) {
@@ -196,6 +200,58 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, on
     })
   }
 
+  const handleDetectKeywords = async () => {
+    if (!exampleSignal.trim()) {
+      alert('Please enter an example signal')
+      return
+    }
+
+    setDetecting(true)
+    try {
+      const result = await window.electron.channelConfig.detectKeywords(exampleSignal)
+      if (result.success && result.detected) {
+        setDetectedKeywords(result.detected)
+      } else {
+        alert('Failed to detect keywords: ' + (result.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error detecting keywords:', error)
+      alert('Error detecting keywords')
+    } finally {
+      setDetecting(false)
+    }
+  }
+
+  const handleApplyDetectedKeywords = () => {
+    if (!config || !detectedKeywords) return
+
+    // Apply signal keywords
+    if (detectedKeywords.signalKeywords) {
+      const newSignalKeywords: any = { ...config.signalKeywords }
+      if (detectedKeywords.signalKeywords.buy) newSignalKeywords.buy = detectedKeywords.signalKeywords.buy
+      if (detectedKeywords.signalKeywords.sell) newSignalKeywords.sell = detectedKeywords.signalKeywords.sell
+      if (detectedKeywords.signalKeywords.stopLoss) newSignalKeywords.stopLoss = detectedKeywords.signalKeywords.stopLoss
+      if (detectedKeywords.signalKeywords.takeProfit) newSignalKeywords.takeProfit = detectedKeywords.signalKeywords.takeProfit
+      if (detectedKeywords.signalKeywords.entryPoint) newSignalKeywords.entryPoint = detectedKeywords.signalKeywords.entryPoint
+
+      setConfig({
+        ...config,
+        signalKeywords: newSignalKeywords,
+        advancedSettings: {
+          ...config.advancedSettings,
+          tpFormatMode: detectedKeywords.detectedTPFormat || config.advancedSettings.tpFormatMode
+        }
+      })
+    }
+
+    // Close the generator modal
+    setShowKeywordGenerator(false)
+    setExampleSignal('')
+    setDetectedKeywords(null)
+
+    alert('Keywords applied successfully! Don\'t forget to save your configuration.')
+  }
+
   if (!isOpen) return null
 
   return (
@@ -203,9 +259,19 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, on
       <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">
-            Config Keyword for {channelName}
-          </h2>
+          <div className="flex items-center space-x-3">
+            <h2 className="text-lg font-semibold text-white">
+              Config Keyword for {channelName}
+            </h2>
+            <button
+              onClick={() => setShowKeywordGenerator(true)}
+              className="flex items-center space-x-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded transition-colors"
+              title="Auto-detect keywords from example signal"
+            >
+              <Sparkles size={14} />
+              <span>Generate from Example</span>
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors"
@@ -513,6 +579,136 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, on
           </>
         )}
       </div>
+
+      {/* Keyword Generator Modal */}
+      {showKeywordGenerator && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]">
+          <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-700">
+              <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
+                <Sparkles className="text-purple-400" size={20} />
+                <span>Generate Keywords from Example</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setShowKeywordGenerator(false)
+                  setExampleSignal('')
+                  setDetectedKeywords(null)
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto max-h-[70vh]">
+              <p className="text-gray-300 text-sm mb-4">
+                Paste an example signal from your provider below. The app will automatically detect the keywords used for BUY, SELL, TP, SL, ENTRY, etc.
+              </p>
+
+              <textarea
+                value={exampleSignal}
+                onChange={(e) => setExampleSignal(e.target.value)}
+                placeholder={`Example:
+
+🔔 SELL XAUUSD 4329-4332
+
+✔️TP¹ 4325
+✔️TP² 4320
+✔️TP³ 4315
+
+🚫SL 4335`}
+                className="w-full h-48 bg-gray-900 border border-gray-700 rounded px-4 py-3 text-white text-sm font-mono resize-none focus:outline-none focus:border-purple-500"
+                spellCheck="false"
+              />
+
+              <button
+                onClick={handleDetectKeywords}
+                disabled={detecting || !exampleSignal.trim()}
+                className="mt-4 w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded transition-colors font-medium"
+              >
+                {detecting ? 'Detecting Keywords...' : 'Detect Keywords'}
+              </button>
+
+              {/* Detection Results */}
+              {detectedKeywords && (
+                <div className="mt-6 space-y-4">
+                  <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                    <h4 className="text-sm font-semibold text-white mb-3">Detected Keywords:</h4>
+
+                    <div className="space-y-2 text-sm">
+                      {detectedKeywords.signalKeywords.buy && detectedKeywords.signalKeywords.buy.length > 0 && (
+                        <div className="flex items-start">
+                          <span className="text-gray-400 w-20">BUY:</span>
+                          <span className="text-green-400">{detectedKeywords.signalKeywords.buy.join(', ')}</span>
+                        </div>
+                      )}
+                      {detectedKeywords.signalKeywords.sell && detectedKeywords.signalKeywords.sell.length > 0 && (
+                        <div className="flex items-start">
+                          <span className="text-gray-400 w-20">SELL:</span>
+                          <span className="text-red-400">{detectedKeywords.signalKeywords.sell.join(', ')}</span>
+                        </div>
+                      )}
+                      {detectedKeywords.signalKeywords.takeProfit && detectedKeywords.signalKeywords.takeProfit.length > 0 && (
+                        <div className="flex items-start">
+                          <span className="text-gray-400 w-20">TP:</span>
+                          <span className="text-blue-400">{detectedKeywords.signalKeywords.takeProfit.join(', ')}</span>
+                        </div>
+                      )}
+                      {detectedKeywords.signalKeywords.stopLoss && detectedKeywords.signalKeywords.stopLoss.length > 0 && (
+                        <div className="flex items-start">
+                          <span className="text-gray-400 w-20">SL:</span>
+                          <span className="text-yellow-400">{detectedKeywords.signalKeywords.stopLoss.join(', ')}</span>
+                        </div>
+                      )}
+                      {detectedKeywords.signalKeywords.entryPoint && detectedKeywords.signalKeywords.entryPoint.length > 0 && (
+                        <div className="flex items-start">
+                          <span className="text-gray-400 w-20">ENTRY:</span>
+                          <span className="text-purple-400">{detectedKeywords.signalKeywords.entryPoint.join(', ')}</span>
+                        </div>
+                      )}
+                      <div className="flex items-start pt-2 border-t border-gray-700 mt-2">
+                        <span className="text-gray-400 w-20">Format:</span>
+                        <span className="text-gray-300">
+                          {detectedKeywords.detectedTPFormat === 'separate_keywords' ? 'Numbered TPs (TP1, TP2, TP3...)' : 'Comma-separated (TP: 100, 150, 200)'}
+                        </span>
+                      </div>
+                      <div className="flex items-start">
+                        <span className="text-gray-400 w-20">Confidence:</span>
+                        <span className={detectedKeywords.confidence >= 0.8 ? 'text-green-400' : detectedKeywords.confidence >= 0.5 ? 'text-yellow-400' : 'text-red-400'}>
+                          {(detectedKeywords.confidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+
+                    {detectedKeywords.suggestions && detectedKeywords.suggestions.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h5 className="text-xs font-semibold text-gray-400 mb-2">Suggestions:</h5>
+                        <ul className="space-y-1">
+                          {detectedKeywords.suggestions.map((suggestion: string, idx: number) => (
+                            <li key={idx} className="text-xs text-gray-400">
+                              {suggestion}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={handleApplyDetectedKeywords}
+                    className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded transition-colors font-medium"
+                  >
+                    Apply Keywords to Configuration
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

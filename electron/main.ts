@@ -38,6 +38,7 @@ import { multiTPHandler } from './services/multiTPHandler'
 import { licenseService } from './services/licenseService'
 import { visionAI } from './services/visionAI'
 import { accountService } from './services/accountService'
+import { keywordDetector } from './services/keywordDetector'
 import { logger } from './utils/logger'
 
 let mainWindow: BrowserWindow | null = null
@@ -712,6 +713,16 @@ ipcMain.handle('channelConfig:clearConfirmationRequirements', async (_, channelI
     return { success }
   } catch (error: any) {
     logger.error('Clear confirmation requirements error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('channelConfig:detectKeywords', async (_, exampleSignal: string) => {
+  try {
+    const detected = keywordDetector.detectKeywords(exampleSignal)
+    return { success: true, detected }
+  } catch (error: any) {
+    logger.error('Detect keywords error:', error)
     return { success: false, error: error.message }
   }
 })

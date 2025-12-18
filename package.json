@@ -1,7 +1,7 @@
 {
-  "name": "telegram-signal-copier",
+  "name": "telegram-signal-mirror",
   "version": "1.0.3",
-  "description": "Desktop application that copies trading signals from Telegram to MT4/MT5/cTrader",
+  "description": "Desktop application that mirrors trading signals from Telegram to MT4/MT5/cTrader",
   "main": "electron/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
@@ -22,7 +22,7 @@
     "forex",
     "mt4",
     "mt5",
-    "signal-copier"
+    "signal-mirror"
   ],
   "author": "Telegram Signal Mirror Team",
   "repository": {
@@ -83,7 +83,7 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.telegramsignalcopier.app",
+    "appId": "com.telegramsignalmirror.app",
     "productName": "Telegram Signal Mirror",
     "directories": {
       "output": "release"

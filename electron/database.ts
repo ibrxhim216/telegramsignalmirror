@@ -55,7 +55,7 @@ function runMigrations() {
 
 export async function initDatabase() {
   try {
-    dbPath = path.join(app.getPath('userData'), 'telegram-signal-copier.db')
+    dbPath = path.join(app.getPath('userData'), 'telegram-signal-mirror.db')
 
     const SQL = await initSqlJs()
 
