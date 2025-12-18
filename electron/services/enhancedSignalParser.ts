@@ -393,8 +393,8 @@ export class EnhancedSignalParser {
     if (config.advancedSettings.slInPips) {
       for (const keyword of keywords) {
         const keywordUpper = keyword.toUpperCase()
-        // Match pattern: keyword followed by separator and number
-        const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*]+([0-9]+\\.?[0-9]*)`, 'gi')
+        // Match pattern: optional emoji/special chars, then keyword, then separator and number
+        const pattern = new RegExp(`[^A-Z0-9]*${keywordUpper}[:\\s@\\-_*]+([0-9]+\\.?[0-9]*)`, 'gi')
         const matches = text.matchAll(pattern)
 
         for (const match of matches) {
@@ -448,7 +448,8 @@ export class EnhancedSignalParser {
         const keywordUpper = keyword.toUpperCase()
 
         // First, try to match numbered TPs (TP1, TP2, etc.)
-        const numberedPattern = new RegExp(`${keywordUpper}[\\s]*([1-5])[:\\s@\\-_*]+([0-9]+\\.?[0-9]*)`, 'gi')
+        // Allow optional unicode/superscript characters after keyword (e.g., TP¹, TP², TP³)
+        const numberedPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[\\s]*([1-5])[:\\s@\\-_*]+([0-9]+\\.?[0-9]*)`, 'gi')
         const numberedMatches = text.matchAll(numberedPattern)
         let foundNumbered = false
 
@@ -472,7 +473,8 @@ export class EnhancedSignalParser {
 
         // If no numbered TPs found, try plain "TP: 200" format (treat as TP1)
         if (!foundNumbered) {
-          const plainPattern = new RegExp(`${keywordUpper}[:\\s@\\-_*]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
+          // Allow optional unicode/superscript characters after keyword before separator
+          const plainPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
           const plainMatches = text.matchAll(plainPattern)
 
           for (const match of plainMatches) {
@@ -504,7 +506,8 @@ export class EnhancedSignalParser {
       for (const keyword of keywords) {
         const keywordUpper = keyword.toUpperCase()
         // Match pattern: keyword followed by comma-separated values
-        const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
+        // Allow optional unicode/superscript characters after keyword before separator
+        const pattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
         const matches = text.matchAll(pattern)
 
         for (const match of matches) {
