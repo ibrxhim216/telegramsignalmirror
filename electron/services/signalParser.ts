@@ -37,7 +37,7 @@ export class SignalParser {
       }
 
       // Extract entry price(s)
-      const entryPrice = this.extractEntryPrice(normalized)
+      const entryPrice = this.extractEntryPrice(normalized, symbol)
 
       // Extract stop loss
       const stopLoss = this.extractStopLoss(normalized)
@@ -125,18 +125,44 @@ export class SignalParser {
     return null
   }
 
-  private extractEntryPrice(text: string): number | number[] | undefined {
-    // Look for patterns like "Entry: 1.2345", "ENTRY @ 1.2345", "@ 1.2345"
-    const patterns = [
-      /ENTRY[:\s@]+([0-9]+\.[0-9]+)/gi,
-      /ENTER[:\s@]+([0-9]+\.[0-9]+)/gi,
-      /@\s*([0-9]+\.[0-9]+)/g,
-      /PRICE[:\s]+([0-9]+\.[0-9]+)/gi,
-    ]
-
+  private extractEntryPrice(text: string, symbol: string): number | number[] | undefined {
     const prices: number[] = []
 
-    for (const pattern of patterns) {
+    // 1. Check for range pattern first (4329-4332) - takes first number
+    const rangePattern = /([0-9]+\.?[0-9]*)\s*-\s*([0-9]+\.?[0-9]*)/g
+    const rangeMatch = text.match(rangePattern)
+    if (rangeMatch) {
+      const rangeResult = rangePattern.exec(text)
+      if (rangeResult) {
+        const price = parseFloat(rangeResult[1])
+        if (!isNaN(price) && price > 0) {
+          return price  // Return first number from range
+        }
+      }
+    }
+
+    // 2. Check for symbol-based pattern (XAUUSD 4329, EURUSD 1.2345)
+    const symbolPattern = new RegExp(symbol + '\\s+([0-9]+\\.?[0-9]*)', 'gi')
+    const symbolMatch = text.match(symbolPattern)
+    if (symbolMatch) {
+      const symbolResult = symbolPattern.exec(text)
+      if (symbolResult) {
+        const price = parseFloat(symbolResult[1])
+        if (!isNaN(price) && price > 0) {
+          prices.push(price)
+        }
+      }
+    }
+
+    // 3. Check for keyword-based patterns (ENTRY:, @, PRICE:)
+    const keywordPatterns = [
+      /ENTRY[:\s@]+([0-9]+\.?[0-9]*)/gi,
+      /ENTER[:\s@]+([0-9]+\.?[0-9]*)/gi,
+      /@\s*([0-9]+\.?[0-9]*)/g,
+      /PRICE[:\s]+([0-9]+\.?[0-9]*)/gi,
+    ]
+
+    for (const pattern of keywordPatterns) {
       const matches = text.matchAll(pattern)
       for (const match of matches) {
         const price = parseFloat(match[1])
@@ -152,11 +178,11 @@ export class SignalParser {
   }
 
   private extractStopLoss(text: string): number | undefined {
-    // Look for patterns like "SL: 1.2345", "STOP LOSS: 1.2345", "SL @ 1.2345"
+    // Look for patterns like "SL: 1.2345", "STOP LOSS: 1.2345", "SL @ 1.2345", "SL 4336"
     const patterns = [
-      /SL[:\s@]+([0-9]+\.[0-9]+)/gi,
-      /STOP\s*LOSS[:\s@]+([0-9]+\.[0-9]+)/gi,
-      /STOP[:\s@]+([0-9]+\.[0-9]+)/gi,
+      /SL[:\s@]+([0-9]+\.?[0-9]*)/gi,
+      /STOP\s*LOSS[:\s@]+([0-9]+\.?[0-9]*)/gi,
+      /STOP[:\s@]+([0-9]+\.?[0-9]*)/gi,
     ]
 
     for (const pattern of patterns) {
