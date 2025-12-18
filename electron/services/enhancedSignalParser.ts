@@ -287,7 +287,32 @@ export class EnhancedSignalParser {
     const keywords = config.signalKeywords.entryPoint
     const prices: number[] = []
 
-    // Check for pending order formats: "SELL STOP 4114", "SELL STOP - 3338.3", or "BUY LIMIT : 1.2345"
+    // 1. Check for range pattern first (4329-4332) - takes first number
+    const rangePattern = /([0-9]+\.?[0-9]*)\s*-\s*([0-9]+\.?[0-9]*)/
+    const rangeMatch = rangePattern.exec(text)
+    if (rangeMatch) {
+      const price = parseFloat(rangeMatch[1])
+      if (!isNaN(price) && price > 0) {
+        logger.debug(`Extracted entry price from range format: ${price}`)
+        return price  // Return first number from range
+      }
+    }
+
+    // 2. Check for symbol-based pattern (XAUUSD 4329, EURUSD 1.2345)
+    const symbol = this.extractSymbol(text)
+    if (symbol) {
+      const symbolPattern = new RegExp(symbol + '\\s+([0-9]+\\.?[0-9]*)', 'i')
+      const symbolMatch = symbolPattern.exec(text)
+      if (symbolMatch) {
+        const price = parseFloat(symbolMatch[1])
+        if (!isNaN(price) && price > 0) {
+          prices.push(price)
+          logger.debug(`Extracted entry price from symbol-adjacent format: ${price}`)
+        }
+      }
+    }
+
+    // 3. Check for pending order formats: "SELL STOP 4114", "SELL STOP - 3338.3", or "BUY LIMIT : 1.2345"
     // Pattern allows: space, dash, or colon as separator
     const pendingOrderPattern = /(BUY|SELL)\s*(STOP|LIMIT)\s+([0-9]+\.?[0-9]*)/gi
     const pendingMatches = text.matchAll(pendingOrderPattern)
@@ -298,7 +323,7 @@ export class EnhancedSignalParser {
       }
     }
 
-    // Also check for simple "BUY 4300" or "SELL 4300" format (without STOP/LIMIT)
+    // 4. Also check for simple "BUY 4300" or "SELL 4300" format (without STOP/LIMIT)
     if (prices.length === 0) {
       const simpleOrderPattern = /(BUY|SELL)\s+([0-9]+\.?[0-9]*)/gi
       const simpleMatches = text.matchAll(simpleOrderPattern)
