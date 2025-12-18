@@ -129,28 +129,22 @@ export class SignalParser {
     const prices: number[] = []
 
     // 1. Check for range pattern first (4329-4332) - takes first number
-    const rangePattern = /([0-9]+\.?[0-9]*)\s*-\s*([0-9]+\.?[0-9]*)/g
-    const rangeMatch = text.match(rangePattern)
+    const rangePattern = /([0-9]+\.?[0-9]*)\s*-\s*([0-9]+\.?[0-9]*)/
+    const rangeMatch = rangePattern.exec(text)
     if (rangeMatch) {
-      const rangeResult = rangePattern.exec(text)
-      if (rangeResult) {
-        const price = parseFloat(rangeResult[1])
-        if (!isNaN(price) && price > 0) {
-          return price  // Return first number from range
-        }
+      const price = parseFloat(rangeMatch[1])
+      if (!isNaN(price) && price > 0) {
+        return price  // Return first number from range
       }
     }
 
     // 2. Check for symbol-based pattern (XAUUSD 4329, EURUSD 1.2345)
-    const symbolPattern = new RegExp(symbol + '\\s+([0-9]+\\.?[0-9]*)', 'gi')
-    const symbolMatch = text.match(symbolPattern)
+    const symbolPattern = new RegExp(symbol + '\\s+([0-9]+\\.?[0-9]*)', 'i')
+    const symbolMatch = symbolPattern.exec(text)
     if (symbolMatch) {
-      const symbolResult = symbolPattern.exec(text)
-      if (symbolResult) {
-        const price = parseFloat(symbolResult[1])
-        if (!isNaN(price) && price > 0) {
-          prices.push(price)
-        }
+      const price = parseFloat(symbolMatch[1])
+      if (!isNaN(price) && price > 0) {
+        prices.push(price)
       }
     }
 
