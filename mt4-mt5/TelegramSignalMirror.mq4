@@ -558,10 +558,11 @@ void ProcessSignalsResponse(string response)
       if(StringFind(response, "]", pos) == pos) break;
    }
 
-   if(signalCount > 0)
-   {
-      Print("Processed ", signalCount, " signal(s)");
-   }
+   // Silent polling - only log when signals are actually processed
+   // if(signalCount > 0)
+   // {
+   //    Print("Processed ", signalCount, " signal(s)");
+   // }
 }
 
 //+------------------------------------------------------------------+
