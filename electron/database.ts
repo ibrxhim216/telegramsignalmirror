@@ -15,10 +15,10 @@ function runMigrations() {
 
   try {
     // Check if trades table has the new columns
-    const tableInfo = db.exec("PRAGMA table_info(trades)")
+    const tradesTableInfo = db.exec("PRAGMA table_info(trades)")
 
-    if (tableInfo.length > 0) {
-      const columns = tableInfo[0].values.map((row: any) => row[1]) // Column names are in index 1
+    if (tradesTableInfo.length > 0) {
+      const columns = tradesTableInfo[0].values.map((row: any) => row[1]) // Column names are in index 1
 
       // Add channel_id if missing
       if (!columns.includes('channel_id')) {
@@ -31,9 +31,22 @@ function runMigrations() {
         logger.info('Migration: Adding ticket column to trades table')
         db.run('ALTER TABLE trades ADD COLUMN ticket INTEGER')
       }
-
-      logger.info('Database migrations completed')
     }
+
+    // Check if signals table has cloud_signal_id column
+    const signalsTableInfo = db.exec("PRAGMA table_info(signals)")
+
+    if (signalsTableInfo.length > 0) {
+      const signalsColumns = signalsTableInfo[0].values.map((row: any) => row[1])
+
+      // Add cloud_signal_id if missing
+      if (!signalsColumns.includes('cloud_signal_id')) {
+        logger.info('Migration: Adding cloud_signal_id column to signals table')
+        db.run('ALTER TABLE signals ADD COLUMN cloud_signal_id TEXT')
+      }
+    }
+
+    logger.info('Database migrations completed')
   } catch (error) {
     logger.error('Migration error:', error)
     // Don't throw - continue with database initialization

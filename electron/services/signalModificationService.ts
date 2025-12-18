@@ -21,6 +21,8 @@ export class SignalModificationService extends EventEmitter {
     logger.info(`Processing modification ${modification.id}: ${modification.type}`)
 
     try {
+      const db = getDatabase()
+
       // Find trades - either for a specific signal or globally
       const trades = modification.signalId === 'global'
         ? this.findAllTrades()
@@ -29,7 +31,37 @@ export class SignalModificationService extends EventEmitter {
       if (trades.length === 0) {
         const scope = modification.signalId === 'global' ? 'any account' : `signal ${modification.signalId}`
         logger.warn(`No active trades found for ${scope}`)
-        this.updateModificationStatus(modification.id, 'failed', 'No active trades found')
+
+        // In cloud-only mode, we still want to push modifications to cloud
+        // even if no local trades exist, so the cloud can route to the correct accounts
+        if (modification.signalId !== 'global') {
+          logger.info(`No local trades, but will emit modification for cloud push with signal ID: ${modification.signalId}`)
+
+          // Look up the cloud signal ID from the signals table
+          const cloudSignalResult = db.exec(
+            'SELECT cloud_signal_id FROM signals WHERE id = ?',
+            [modification.signalId]
+          )
+
+          let cloudSignalId = null
+          if (cloudSignalResult.length > 0 && cloudSignalResult[0].values.length > 0) {
+            cloudSignalId = cloudSignalResult[0].values[0][0] as string | null
+            logger.debug(`[Cloud Only] Found cloud signal ID: ${cloudSignalId} for local signal ID: ${modification.signalId}`)
+          } else {
+            logger.warn(`[Cloud Only] No cloud signal ID found for signal ${modification.signalId}`)
+          }
+
+          // Emit a special event for cloud-only modifications with cloud signal ID
+          this.emit('cloudOnlyModification', {
+            modification: {
+              ...modification,
+              signalId: cloudSignalId || modification.signalId // Use cloud signal ID if available
+            },
+            channelName
+          })
+        }
+
+        this.updateModificationStatus(modification.id, 'failed', 'No active trades found locally')
         return
       }
 
@@ -119,6 +151,8 @@ export class SignalModificationService extends EventEmitter {
   private findTradesForSignal(signalId: string): ActiveTrade[] {
     const db = getDatabase()
 
+    logger.debug(`[TRADE LOOKUP] Searching for trades with signal_id = "${signalId}"`)
+
     // Find trades in database for this signal - include both open and pending trades
     const result = db.exec(
       'SELECT ticket, account_number, platform, symbol, entry_price, status FROM trades WHERE signal_id = ? AND status IN (?, ?)',
@@ -126,6 +160,14 @@ export class SignalModificationService extends EventEmitter {
     )
 
     if (result.length === 0 || result[0].values.length === 0) {
+      // Additional debug: show what trades DO exist
+      const allTradesResult = db.exec('SELECT signal_id, ticket, status FROM trades ORDER BY id DESC LIMIT 10')
+      if (allTradesResult.length > 0 && allTradesResult[0].values.length > 0) {
+        logger.debug(`[TRADE LOOKUP] Recent trades in database:`)
+        allTradesResult[0].values.forEach(row => {
+          logger.debug(`  Signal ID: ${row[0]}, Ticket: ${row[1]}, Status: ${row[2]}`)
+        })
+      }
       logger.warn(`No active trades found in database for signal ${signalId}`)
       return []
     }
@@ -185,6 +227,8 @@ export class SignalModificationService extends EventEmitter {
     accountNumber: string,
     platform: string
   ): ModificationCommand | null {
+    logger.debug(`[CREATE CMD] Creating ${modification.type} command for ${trades.length} trade(s): ${trades.map(t => `#${t.ticket}(${t.status})`).join(', ')}`)
+
     switch (modification.type) {
       case 'move_to_breakeven':
         return {

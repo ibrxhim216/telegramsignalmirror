@@ -45,7 +45,7 @@ export class CloudSyncService extends EventEmitter {
    * Push signal to cloud backend and return the cloud signal ID
    * The cloud server will distribute this signal to all accounts registered by the authenticated user
    */
-  async pushSignal(signal: ParsedSignal, channelId?: string, channelName?: string): Promise<string | null> {
+  async pushSignal(signal: ParsedSignal, channelId?: string, channelName?: string, telegramMessageId?: number): Promise<string | null> {
     if (!this.config.enabled) {
       logger.debug('[Cloud Sync] Disabled, skipping signal push')
       return null
@@ -67,7 +67,8 @@ export class CloudSyncService extends EventEmitter {
         comment: signal.comment || 'Telegram signal',
         channelId: channelId || null,
         channelName: channelName || null,
-        signalText: signal.rawText || null
+        signalText: signal.rawText || null,
+        telegramMessageId: telegramMessageId || null
       }
 
       logger.info(`[Cloud Sync] Pushing signal to ${this.config.apiUrl}/api/signals`)
@@ -93,8 +94,21 @@ export class CloudSyncService extends EventEmitter {
       }
 
       const result = await response.json()
-      logger.info(`[Cloud Sync] Signal pushed successfully: ${result.signalId}`)
-      return result.signalId || null
+      logger.debug(`[Cloud Sync] Full response body: ${JSON.stringify(result)}`)
+
+      // Cloud API returns signalIds as an array (one per account)
+      // Use the first signal ID for the mapping
+      let signalId = null
+      if (result.signalIds && Array.isArray(result.signalIds) && result.signalIds.length > 0) {
+        signalId = result.signalIds[0]
+      } else if (result.signalId) {
+        signalId = result.signalId
+      } else if (result.id) {
+        signalId = result.id
+      }
+
+      logger.info(`[Cloud Sync] Signal pushed successfully: ${signalId} (${result.accountCount || 0} account(s))`)
+      return signalId
     } catch (error: any) {
       logger.error(`[Cloud Sync] Error pushing signal: ${error.message}`)
       logger.error(`[Cloud Sync] Error type: ${error.constructor.name}`)
@@ -153,7 +167,10 @@ export class CloudSyncService extends EventEmitter {
         channelName: modification.channelName || null,
         rawText: modification.rawText || null,
         messageId: modification.messageId?.toString() || null,
-        tickets: modification.affectedTickets || [],
+        // Only send tickets if we actually have them - let cloud API do the lookup if empty
+        tickets: (modification.affectedTickets && modification.affectedTickets.length > 0)
+          ? modification.affectedTickets
+          : null,
         newValue: modification.newValue || null,
         percentage: modification.percentage || null,
         reason: modification.reason || null
@@ -275,7 +292,9 @@ export class CloudSyncService extends EventEmitter {
       )
 
       if (!response.ok) {
-        logger.error(`[Cloud Sync] Failed to fetch executed trades: ${response.status}`)
+        const errorText = await response.text()
+        logger.error(`[Cloud Sync] Failed to fetch executed trades: ${response.status} ${response.statusText}`)
+        logger.error(`[Cloud Sync] Error response: ${errorText}`)
         return
       }
 

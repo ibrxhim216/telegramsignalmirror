@@ -254,15 +254,25 @@ export class ApiServer {
 
       // Transform ModificationCommand to EA-friendly format (no nested objects)
       // EA's simple JSON parser can't handle nested objects, so flatten the structure
-      const simplifiedModifications = accountModifications.map(cmd => ({
-        type: cmd.type,
-        accountNumber: cmd.accountNumber,
-        platform: cmd.platform,
-        tickets: cmd.trades.map(t => t.ticket), // Just ticket numbers
-        newValue: cmd.newValue,
-        percentage: cmd.percentage,
-        reason: cmd.reason
-      }))
+      const simplifiedModifications = accountModifications
+        .map(cmd => ({
+          type: cmd.type,
+          accountNumber: cmd.accountNumber,
+          platform: cmd.platform,
+          tickets: cmd.trades.map(t => t.ticket), // Just ticket numbers
+          newValue: cmd.newValue,
+          percentage: cmd.percentage,
+          reason: cmd.reason
+        }))
+        .filter(cmd => {
+          // SAFETY: Never send commands with empty tickets array
+          // This prevents the EA from interpreting empty tickets as "all trades"
+          if (cmd.tickets.length === 0) {
+            logger.warn(`[MOD SAFETY] Blocked modification command with empty tickets array: ${cmd.type}`)
+            return false
+          }
+          return true
+        })
 
       // Log the command being sent for debugging
       if (simplifiedModifications.length > 0) {
@@ -294,7 +304,7 @@ export class ApiServer {
   /**
    * Add a new signal to the queue
    */
-  async addSignal(signal: ParsedSignal, config: ChannelConfig, dbSignalId?: number, channelId?: number, channelName?: string) {
+  async addSignal(signal: ParsedSignal, config: ChannelConfig, dbSignalId?: number, channelId?: number, channelName?: string, telegramMessageId?: number) {
     const id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
 
     // Store the mapping from random ID to database signal ID
@@ -323,11 +333,21 @@ export class ApiServer {
         const cloudId = await this.cloudSyncService.pushSignal(
           signal,
           channelId?.toString(),
-          channelName
+          channelName,
+          telegramMessageId
         )
         if (cloudId) {
           cloudSignalId = cloudId
           logger.debug(`Got cloud signal ID: ${cloudSignalId}`)
+
+          // Store cloud signal ID in database if we have a dbSignalId
+          if (dbSignalId) {
+            const { getDatabase, saveDatabase } = require('../database')
+            const db = getDatabase()
+            db.run('UPDATE signals SET cloud_signal_id = ? WHERE id = ?', [cloudSignalId, dbSignalId])
+            saveDatabase()
+            logger.debug(`Stored cloud signal ID ${cloudSignalId} for DB signal ${dbSignalId}`)
+          }
         }
       } catch (error: any) {
         logger.error(`[Cloud Sync] Failed to push signal: ${error.message}`)
