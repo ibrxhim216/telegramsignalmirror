@@ -1,0 +1,149 @@
+================================================================================
+  TELEGRAM SIGNAL MIRROR - QUICK START GUIDE
+  Version 1.0.1
+================================================================================
+
+Welcome to Telegram Signal Mirror! Get started in 3 easy steps:
+
+
+STEP 1: WEB PORTAL SETUP (5 minutes)
+================================================================================
+
+1. Visit: https://www.telegramsignalmirror.com
+
+2. Create your account or login
+
+3. Subscribe to a plan:
+   - Basic: 1 MT4/MT5 account, 1 channel
+   - Pro: 3 MT4/MT5 accounts, 3 channels
+   - Lifetime: 3 MT4/MT5 accounts, 3 channels (one-time payment)
+
+4. Register your MT4/MT5 trading accounts:
+   - Click "Add Account" in the web portal
+   - Enter your account number and select platform (MT4 or MT5)
+   - Save
+
+Your accounts are now registered in the cloud!
+
+
+STEP 2: DESKTOP APP SETUP (3 minutes)
+================================================================================
+
+1. Double-click: "Telegram Signal Mirror 1.0.1.exe"
+
+   Note: Windows may show a security warning. Click "More info" then "Run anyway"
+   (This is normal for apps without expensive code signing certificates)
+
+2. Login with your web portal credentials (same email/password)
+
+3. Connect to Telegram:
+   - Click "Connect to Telegram"
+   - Enter your Telegram phone number (with country code, e.g., +1234567890)
+   - Enter the verification code sent to your Telegram app
+   - Click "Confirm"
+
+4. Start Monitoring:
+   - Click "Select Channels"
+   - Choose which Telegram signal channels to monitor
+   - Click "Start Monitoring"
+
+The desktop app is now receiving signals and pushing them to the cloud!
+
+
+STEP 3: MT4/MT5 EA SETUP (2 minutes)
+================================================================================
+
+FOR MT4:
+--------
+1. Copy "TelegramSignalMirror.ex4" to:
+   C:\Program Files\[Your Broker MT4]\MQL4\Experts\
+
+2. Open MT4
+3. Open any chart (symbol doesn't matter)
+4. Drag the EA "TelegramSignalMirror" onto the chart
+5. In EA settings:
+   - Set your Account Number (must match what you registered in web portal)
+   - Enable "Allow live trading" and "Allow DLL imports"
+   - Click OK
+
+FOR MT5:
+--------
+1. Copy "TelegramSignalMirror.ex5" to:
+   C:\Program Files\[Your Broker MT5]\MQL5\Experts\
+
+2. Open MT5
+3. Open any chart (symbol doesn't matter)
+4. Drag the EA "TelegramSignalMirror" onto the chart
+5. In EA settings:
+   - Set your Account Number (must match what you registered in web portal)
+   - Enable "Allow algo trading" and "Allow DLL imports"
+   - Click OK
+
+
+YOU'RE DONE!
+================================================================================
+
+The complete signal flow is now active:
+
+Telegram Channel → Desktop App → Cloud → MT4/MT5 EAs → Automatic Trades
+
+
+HOW IT WORKS:
+--------------------------------------------------------------------------------
+1. When a signal is posted in your monitored Telegram channel
+2. Desktop app receives it instantly and parses the signal
+3. Desktop app pushes to cloud API
+4. Cloud distributes to ALL your registered MT4/MT5 accounts
+5. Each MT4/MT5 EA polls the cloud every 2 seconds
+6. EA executes the trade automatically on your account
+
+Multi-account support means ONE signal → MULTIPLE accounts execute!
+
+
+TESTING:
+--------------------------------------------------------------------------------
+Send a test signal in your Telegram channel. You should see:
+- Desktop app shows the signal in the feed
+- MT4/MT5 Experts tab shows "New signal received"
+- Trade opens automatically in your account(s)
+
+
+NEED HELP?
+================================================================================
+Telegram Support: https://t.me/tsmsignal_support (click to chat instantly!)
+Documentation: https://www.telegramsignalmirror.com/docs
+Support Email: support@telegramsignalmirror.com
+GitHub Issues: https://github.com/ibrxhim216/telegramsignalmirror/issues
+
+
+SYSTEM REQUIREMENTS:
+================================================================================
+Desktop App:
+- Windows 10/11 (64-bit)
+- 4GB RAM minimum
+- Active internet connection
+
+MT4/MT5:
+- Any broker platform
+- Must allow Expert Advisors (EAs)
+- Active internet connection
+
+
+TROUBLESHOOTING:
+================================================================================
+Q: Desktop app won't open?
+A: Right-click → Properties → Unblock → Apply
+
+Q: EA shows "Account not found"?
+A: Verify account is registered in web portal with exact same number
+
+Q: No trades executing?
+A: Check MT4/MT5 Experts tab for error messages
+   Ensure "Allow algo trading" is enabled
+
+Q: Desktop app lost connection?
+A: Click "Reconnect" - your settings are saved locally
+
+
+Enjoy automated trading!
+The Telegram Signal Mirror Team

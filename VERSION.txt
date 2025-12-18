@@ -1,0 +1,32 @@
+Telegram Signal Mirror
+Version: 1.0.3
+Release Date: December 18, 2024
+Build: Production
+
+CHANGES IN v1.0.3:
+- Enhanced: Signal parser now supports emoji and unicode characters in keywords
+- Fixed: TP keywords now match with superscript numbers (TP¹, TP², TP³, TP⁴)
+- Fixed: Entry price extraction for compact signal formats (e.g., "XAUUSD 4329-4332")
+- Improved: Multi-TP handling - creates separate orders for each TP level
+- Improved: MT4/MT5 EA polling now runs silently in background (reduced log noise)
+
+PACKAGE CONTENTS:
+- Desktop Application: Telegram Signal Mirror 1.0.3.exe (95 MB)
+- MT4 Expert Advisor: TelegramSignalMirror.ex4 (114 KB)
+- MT5 Expert Advisor: TelegramSignalMirror.ex5 (113 KB)
+- Documentation: QUICK_START.txt, README.txt
+
+SYSTEM REQUIREMENTS:
+- Windows 10/11 (64-bit)
+- 4GB RAM minimum
+- Internet connection required
+- MT4/MT5 platform for trading
+
+DISTRIBUTION:
+This package is ready for customer distribution.
+All components tested and verified working.
+
+SUPPORT:
+Telegram: https://t.me/tsmsignal_support (instant chat!)
+Email: support@telegramsignalmirror.com
+Website: https://www.telegramsignalmirror.com
