@@ -1843,9 +1843,10 @@ void PollModifications()
    static datetime lastDebugLog = 0;
    bool shouldLog = (TimeCurrent() - lastDebugLog >= 10); // Log every 10 seconds
 
+   // Silent polling - no noise in experts tab
    if(shouldLog)
    {
-      Print("[MOD POLL] Polling for modifications...");
+      // Print("[MOD POLL] Polling for modifications...");
       lastDebugLog = TimeCurrent();
    }
 
@@ -1878,7 +1879,8 @@ void PollModifications()
       return;
    }
 
-   if(shouldLog) Print("[MOD POLL] Response received: ", res);
+   // Silent polling
+   // if(shouldLog) Print("[MOD POLL] Response received: ", res);
 
    // Parse response
    string response = CharArrayToString(result);
@@ -1886,14 +1888,14 @@ void PollModifications()
    // Check if there are any modifications
    if(StringFind(response, "\"modifications\":[]") >= 0)
    {
-      // No modifications in queue
-      if(shouldLog) Print("[MOD POLL] No modifications in queue");
+      // No modifications in queue - silent
+      // if(shouldLog) Print("[MOD POLL] No modifications in queue");
       return;
    }
 
    // Process modifications
    Print("[MOD POLL] Modifications found! Processing...");
-   Print("[MOD POLL] Response: ", response);
+   // Print("[MOD POLL] Response: ", response); // Too verbose
    ProcessModificationsResponse(response);
 }
 
@@ -1903,7 +1905,7 @@ void PollModifications()
 void ProcessModificationsResponse(string response)
 {
    // Extract modifications array from response
-   Print("[MOD DEBUG] Response: ", response);
+   // Print("[MOD DEBUG] Response: ", response); // Too verbose
 
    // Search for "modifications" key
    int start = StringFind(response, "\"modifications\"");
@@ -1997,7 +1999,7 @@ void ProcessModification(string modJson)
    {
       // Cancel pending orders - extract specific tickets
       string ticketsStr = ExtractValue(modJson, "tickets");
-      Print("[MOD DEBUG] Extracted tickets string: '", ticketsStr, "'");
+      // Print("[MOD DEBUG] Extracted tickets string: '", ticketsStr, "'"); // Too verbose
 
       // Parse tickets array from JSON format [123,456,789]
       int tickets[];
@@ -2005,7 +2007,7 @@ void ProcessModification(string modJson)
 
       if(ticketCount > 0)
       {
-         Print("[MOD DEBUG] Parsed ", ticketCount, " ticket(s) to delete");
+         // Print("[MOD DEBUG] Parsed ", ticketCount, " ticket(s) to delete"); // Too verbose
          ApplyCancelPending(tickets, ticketCount, reason);
       }
       else

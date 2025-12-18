@@ -1844,9 +1844,10 @@ void PollModifications()
    static datetime lastDebugLog = 0;
    bool shouldLog = (TimeCurrent() - lastDebugLog >= 10); // Log every 10 seconds
 
+   // Silent polling - no noise in experts tab
    if(shouldLog)
    {
-      Print("[MOD POLL] Polling for modifications...");
+      // Print("[MOD POLL] Polling for modifications...");
       lastDebugLog = TimeCurrent();
    }
 
@@ -1879,7 +1880,8 @@ void PollModifications()
       return;
    }
 
-   if(shouldLog) Print("[MOD POLL] Response received: ", res);
+   // Silent polling
+   // if(shouldLog) Print("[MOD POLL] Response received: ", res);
 
    // Parse response
    string response = CharArrayToString(result);
@@ -1887,14 +1889,14 @@ void PollModifications()
    // Check if there are any modifications
    if(StringFind(response, "\"modifications\":[]") >= 0)
    {
-      // No modifications in queue
-      if(shouldLog) Print("[MOD POLL] No modifications in queue");
+      // No modifications in queue - silent
+      // if(shouldLog) Print("[MOD POLL] No modifications in queue");
       return;
    }
 
    // Process modifications
    Print("[MOD POLL] Modifications found! Processing...");
-   Print("[MOD POLL] Response: ", response);
+   // Print("[MOD POLL] Response: ", response); // Too verbose
    ProcessModificationsResponse(response);
 }
 
@@ -1906,7 +1908,7 @@ void ProcessModificationsResponse(string response)
    // Extract modifications array from response
    // Response format: {"modifications":[{...},{...}]} or {"modifications": [{...},{...}]}
 
-   Print("[MOD DEBUG] Response: ", response);
+   // Print("[MOD DEBUG] Response: ", response); // Too verbose
 
    // Search for "modifications" key (handle optional space after colon)
    int start = StringFind(response, "\"modifications\"");
@@ -1925,7 +1927,7 @@ void ProcessModificationsResponse(string response)
    }
 
    start += 1; // Move past "["
-   Print("[MOD DEBUG] Start position: ", start);
+   // Print("[MOD DEBUG] Start position: ", start); // Too verbose
 
    // Find each modification object
    int pos = start;
@@ -1937,7 +1939,7 @@ void ProcessModificationsResponse(string response)
       int objStart = StringFind(response, "{", pos);
       if(objStart < 0)
       {
-         Print("[MOD DEBUG] No more { found");
+         // Print("[MOD DEBUG] No more { found"); // Normal loop exit
          break;
       }
 
@@ -1949,11 +1951,11 @@ void ProcessModificationsResponse(string response)
          break;
       }
 
-      Print("[MOD DEBUG] Found object from ", objStart, " to ", objEnd);
+      // Print("[MOD DEBUG] Found object from ", objStart, " to ", objEnd); // Too verbose
 
       // Extract modification JSON
       string modJson = StringSubstr(response, objStart, objEnd - objStart + 1);
-      Print("[MOD DEBUG] Extracted JSON: ", modJson);
+      // Print("[MOD DEBUG] Extracted JSON: ", modJson); // Too verbose
 
       // Process this modification
       ProcessModification(modJson);
@@ -1972,10 +1974,10 @@ void ProcessModificationsResponse(string response)
       Print("✅ Processed ", modCount, " modification(s)");
       AcknowledgeModifications();
    }
-   else
-   {
-      Print("[MOD DEBUG] No modifications processed");
-   }
+   // else - silent when no modifications processed
+   // {
+   //    Print("[MOD DEBUG] No modifications processed");
+   // }
 }
 
 //+------------------------------------------------------------------+
@@ -1987,9 +1989,9 @@ void ProcessModification(string modJson)
    string type = ExtractValue(modJson, "type");
    string reason = ExtractValue(modJson, "reason");
 
-   Print("[MOD DEBUG] Processing modification JSON: ", modJson);
-   Print("[MOD DEBUG] Extracted type: '", type, "'");
-   Print("[MOD DEBUG] Extracted reason: '", reason, "'");
+   // Print("[MOD DEBUG] Processing modification JSON: ", modJson); // Too verbose
+   // Print("[MOD DEBUG] Extracted type: '", type, "'"); // Too verbose
+   // Print("[MOD DEBUG] Extracted reason: '", reason, "'"); // Too verbose
 
    Print("========================================");
    Print("🔧 MODIFICATION COMMAND: ", type);
@@ -2011,9 +2013,9 @@ void ProcessModification(string modJson)
    {
       // Update stop loss
       string newValueStr = ExtractValue(modJson, "newValue");
-      Print("[MOD DEBUG] Extracted newValue string: '", newValueStr, "'");
+      // Print("[MOD DEBUG] Extracted newValue string: '", newValueStr, "'"); // Too verbose
       double newSL = StringToDouble(newValueStr);
-      Print("[MOD DEBUG] Converted to double: ", newSL);
+      // Print("[MOD DEBUG] Converted to double: ", newSL); // Too verbose
       ApplyModifySL(newSL, reason);
    }
    else if(type == "modify_tp")
@@ -2026,7 +2028,7 @@ void ProcessModification(string modJson)
    {
       // Cancel pending orders - extract specific tickets
       string ticketsStr = ExtractValue(modJson, "tickets");
-      Print("[MOD DEBUG] Extracted tickets string: '", ticketsStr, "'");
+      // Print("[MOD DEBUG] Extracted tickets string: '", ticketsStr, "'"); // Too verbose
 
       // Parse tickets array from JSON format [123,456,789]
       ulong tickets[];
@@ -2034,7 +2036,7 @@ void ProcessModification(string modJson)
 
       if(ticketCount > 0)
       {
-         Print("[MOD DEBUG] Parsed ", ticketCount, " ticket(s) to delete");
+         // Print("[MOD DEBUG] Parsed ", ticketCount, " ticket(s) to delete"); // Too verbose
          ApplyCancelPending(tickets, ticketCount, reason);
       }
       else
