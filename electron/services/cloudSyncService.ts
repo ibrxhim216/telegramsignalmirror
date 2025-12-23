@@ -45,7 +45,7 @@ export class CloudSyncService extends EventEmitter {
    * Push signal to cloud backend and return the cloud signal ID
    * The cloud server will distribute this signal to all accounts registered by the authenticated user
    */
-  async pushSignal(signal: ParsedSignal, channelId?: string, channelName?: string, telegramMessageId?: number): Promise<string | null> {
+  async pushSignal(signal: ParsedSignal, channelId?: string, channelName?: string, telegramMessageId?: number, signalGroupId?: string): Promise<string | null> {
     if (!this.config.enabled) {
       logger.debug('[Cloud Sync] Disabled, skipping signal push')
       return null
@@ -68,7 +68,8 @@ export class CloudSyncService extends EventEmitter {
         channelId: channelId || null,
         channelName: channelName || null,
         signalText: signal.rawText || null,
-        telegramMessageId: telegramMessageId || null
+        telegramMessageId: telegramMessageId || null,
+        signalGroupId: signalGroupId || null  // Link multi-TP signals together
       }
 
       logger.info(`[Cloud Sync] Pushing signal to ${this.config.apiUrl}/api/signals`)

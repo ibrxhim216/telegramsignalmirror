@@ -287,14 +287,36 @@ export class EnhancedSignalParser {
     const keywords = config.signalKeywords.entryPoint
     const prices: number[] = []
 
-    // 1. Check for range pattern first (4329-4332) - takes first number
+    // 1. Check for range pattern first (4329-4332) - apply entryRangeStrategy
     const rangePattern = /([0-9]+\.?[0-9]*)\s*-\s*([0-9]+\.?[0-9]*)/
     const rangeMatch = rangePattern.exec(text)
     if (rangeMatch) {
-      const price = parseFloat(rangeMatch[1])
-      if (!isNaN(price) && price > 0) {
-        logger.debug(`Extracted entry price from range format: ${price}`)
-        return price  // Return first number from range
+      const firstPrice = parseFloat(rangeMatch[1])
+      const lastPrice = parseFloat(rangeMatch[2])
+
+      if (!isNaN(firstPrice) && firstPrice > 0 && !isNaN(lastPrice) && lastPrice > 0) {
+        let price: number
+        const strategy = config.advancedSettings.entryRangeStrategy
+
+        switch (strategy) {
+          case 'first':
+            price = firstPrice
+            logger.debug(`Extracted entry price from range (first): ${price} (from ${firstPrice}-${lastPrice})`)
+            break
+          case 'last':
+            price = lastPrice
+            logger.debug(`Extracted entry price from range (last): ${price} (from ${firstPrice}-${lastPrice})`)
+            break
+          case 'middle':
+            price = (firstPrice + lastPrice) / 2
+            logger.debug(`Extracted entry price from range (middle): ${price} (from ${firstPrice}-${lastPrice})`)
+            break
+          default:
+            price = firstPrice
+            logger.debug(`Extracted entry price from range (default first): ${price} (from ${firstPrice}-${lastPrice})`)
+        }
+
+        return price
       }
     }
 
@@ -363,16 +385,20 @@ export class EnhancedSignalParser {
     if (prices.length === 0) return undefined
     if (prices.length === 1) return prices[0]
 
-    // Use preference from config
-    switch (config.advancedSettings.preferEntry) {
+    // Use entryRangeStrategy from config for multiple detected prices
+    const strategy = config.advancedSettings.entryRangeStrategy
+    switch (strategy) {
       case 'first':
+        logger.debug(`Multiple entry prices detected, using first: ${prices[0]} (from ${prices.join(', ')})`)
         return prices[0]
-      case 'second':
-        return prices.length > 1 ? prices[1] : prices[0]
-      case 'average':
-        return prices.reduce((a, b) => a + b, 0) / prices.length
-      case 'all':
-        return prices
+      case 'last':
+        const lastPrice = prices[prices.length - 1]
+        logger.debug(`Multiple entry prices detected, using last: ${lastPrice} (from ${prices.join(', ')})`)
+        return lastPrice
+      case 'middle':
+        const middlePrice = prices.reduce((a, b) => a + b, 0) / prices.length
+        logger.debug(`Multiple entry prices detected, using middle: ${middlePrice} (from ${prices.join(', ')})`)
+        return middlePrice
       default:
         return prices[0]
     }

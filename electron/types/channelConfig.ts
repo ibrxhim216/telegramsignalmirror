@@ -42,7 +42,7 @@ export interface AdditionalKeywords {
 
 export interface ChannelAdvancedSettings {
   delayInMsec: number       // Delay before executing (stealth mode)
-  preferEntry: 'first' | 'second' | 'average' | 'all'  // Which entry price to use
+  entryRangeStrategy: 'first' | 'last' | 'middle'      // How to handle entry price ranges (e.g., "4326-4429")
   slInPips: boolean         // SL given in pips vs price
   tpInPips: boolean         // TP given in pips vs price
   tpFormatMode: 'comma_separated' | 'separate_keywords'  // TP format: "TP: 5, 10" vs "TP1: 5, TP2: 10"
@@ -258,7 +258,7 @@ export const DEFAULT_CHANNEL_CONFIG: Omit<ChannelConfig, 'channelId' | 'channelN
 
   advancedSettings: {
     delayInMsec: 0,
-    preferEntry: 'first',
+    entryRangeStrategy: 'first',  // Default: use first price in range (e.g., 4326 from "4326-4429")
     slInPips: false,
     tpInPips: false,
     tpFormatMode: 'separate_keywords',  // Default: TP1:, TP2:, TP3: format

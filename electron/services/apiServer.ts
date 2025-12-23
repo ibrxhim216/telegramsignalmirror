@@ -1,5 +1,6 @@
 import express, { Express, Request, Response } from 'express'
 import { Server } from 'http'
+import { randomUUID } from 'crypto'
 import { logger } from '../utils/logger'
 import { ParsedSignal } from './signalParser'
 import { ModificationCommand } from './tradeModificationHandler'
@@ -13,6 +14,7 @@ interface QueuedSignal {
   dbSignalId?: number
   channelId?: number
   cloudSignalId?: string  // Cloud API signal ID for acknowledgments
+  signalGroupId?: string  // UUID linking multi-TP signals together
 }
 
 export class ApiServer {
@@ -85,8 +87,9 @@ export class ApiServer {
 
       // Return all pending signals with CLOUD signal ID (not local queue ID)
       // Note: Config is NOT sent because EA uses its own input parameters
-      const signals = this.signalQueue.map(({ id, signal, cloudSignalId }) => ({
+      const signals = this.signalQueue.map(({ id, signal, cloudSignalId, signalGroupId }) => ({
         id: cloudSignalId || id,  // Use cloud signal ID if available, fallback to local ID
+        signalGroupId: signalGroupId || '',  // UUID for multi-TP signal grouping
         ...signal,
       }))
 
@@ -328,6 +331,8 @@ export class ApiServer {
 
     // Push to cloud - if signal has multiple TPs, push separate signals for each TP
     let cloudSignalId: string | undefined
+    let signalGroupId: string | undefined  // Will be set if signal has multiple TPs
+
     if (this.cloudSyncService) {
       try {
         // Check if signal has multiple TPs
@@ -335,7 +340,9 @@ export class ApiServer {
 
         if (tpCount > 1) {
           // Multiple TPs - push separate signal for each TP level
-          logger.info(`📊 Signal has ${tpCount} TPs - pushing ${tpCount} separate signals to cloud`)
+          // Generate a group ID to link all sub-signals together for group breakeven
+          signalGroupId = randomUUID()
+          logger.info(`📊 Signal has ${tpCount} TPs - pushing ${tpCount} separate signals to cloud with group ID: ${signalGroupId}`)
 
           for (let i = 0; i < tpCount; i++) {
             // Create a copy of signal with only this TP
@@ -348,7 +355,8 @@ export class ApiServer {
               singleTPSignal,
               channelId?.toString(),
               channelName,
-              telegramMessageId
+              telegramMessageId,
+              signalGroupId  // Pass the group ID to link multi-TP signals
             )
 
             if (cloudId && i === 0) {
@@ -396,9 +404,12 @@ export class ApiServer {
       }
     }
 
-    // Add to queue with cloud signal ID
-    this.signalQueue.push({ id, signal: transformedSignal, config, dbSignalId, channelId, cloudSignalId })
+    // Add to queue with cloud signal ID and signal group ID
+    this.signalQueue.push({ id, signal: transformedSignal, config, dbSignalId, channelId, cloudSignalId, signalGroupId })
     logger.info(`Signal ${id} added to queue. Queue size: ${this.signalQueue.length}`)
+    if (signalGroupId) {
+      logger.info(`📎 Signal added to group: ${signalGroupId}`)
+    }
     logger.debug(`Transformed signal: SL=${transformedSignal.stopLoss}, TP1=${transformedSignal.takeProfit1}`)
   }
 

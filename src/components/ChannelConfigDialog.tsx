@@ -40,7 +40,7 @@ interface ChannelConfig {
   }
   advancedSettings: {
     delayInMsec: number
-    preferEntry: 'first' | 'second' | 'average' | 'all'
+    entryRangeStrategy: 'first' | 'last' | 'middle'
     slInPips: boolean
     tpInPips: boolean
     readImage: boolean
@@ -485,16 +485,15 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, on
                       </div>
 
                       <div>
-                        <label className="block text-xs text-gray-400 mb-1">Prefer Entry</label>
+                        <label className="block text-xs text-gray-400 mb-1">Entry Range Strategy</label>
                         <select
-                          value={config.advancedSettings.preferEntry}
-                          onChange={(e) => updateAdvancedSetting('preferEntry', e.target.value)}
+                          value={config.advancedSettings.entryRangeStrategy}
+                          onChange={(e) => updateAdvancedSetting('entryRangeStrategy', e.target.value)}
                           className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white"
                         >
-                          <option value="first">First Price</option>
-                          <option value="second">Second Price</option>
-                          <option value="average">Average</option>
-                          <option value="all">All Prices</option>
+                          <option value="first">First Price (4326 from 4326-4429)</option>
+                          <option value="last">Last Price (4429 from 4326-4429)</option>
+                          <option value="middle">Middle Price (4377.5 from 4326-4429)</option>
                         </select>
                       </div>
 

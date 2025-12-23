@@ -102,7 +102,7 @@ export class KeywordDetector {
 
     // Check for common emojis used with BUY
     if (/📈|🟢|🔵|⬆️.*BUY/gi.test(text)) {
-      keywords.add('BUY')
+      keywords.add('buy')
     }
 
     return Array.from(keywords)
@@ -131,7 +131,7 @@ export class KeywordDetector {
 
     // Check for common emojis used with SELL
     if (/📉|🔴|🔻|⬇️.*SELL/gi.test(text)) {
-      keywords.add('SELL')
+      keywords.add('sell')
     }
 
     return Array.from(keywords)
@@ -160,7 +160,7 @@ export class KeywordDetector {
     const emojiPattern = /([🚫❌⛔🔴✖️])[\s]*(SL|STOP)/gi
     const emojiMatches = text.matchAll(emojiPattern)
     for (const match of emojiMatches) {
-      keywords.add('SL')
+      keywords.add('sl')
     }
 
     return Array.from(keywords)
@@ -190,7 +190,7 @@ export class KeywordDetector {
     const emojiPattern = /([✅✔️☑️🎯])[\s]*(TP|TARGET)/gi
     const emojiMatches = text.matchAll(emojiPattern)
     for (const match of emojiMatches) {
-      keywords.add('TP')
+      keywords.add('tp')
     }
 
     return Array.from(keywords)

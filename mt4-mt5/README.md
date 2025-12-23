@@ -84,8 +84,8 @@ Three risk modes available:
 ### ✅ Breakeven Automation
 - **EnableBreakeven**: Automatically move SL to breakeven
 - **MoveSlAfterXPips**: Move SL after X pips profit
-- **BreakevenPips**: Add buffer pips to entry (default: 2 pips)
-- **MoveSlAfterTPHit**: Move SL to breakeven when first TP hits
+- **BreakevenPips**: Add buffer pips to entry (default: 0 pips)
+- **MoveSlAfterTPHit**: Move SL to breakeven when any TP hits (works for partial closes and multi-order groups)
 
 ### ✅ Partial Close at Each TP
 - **ClosePercentAtTP1-5**: Close X% of position at each TP level
@@ -97,7 +97,6 @@ Three risk modes available:
 - **TrailingStartPips**: Start trailing after X pips profit (default: 5)
 - **TrailingStepPips**: Move SL every X pips (default: 1)
 - **TrailingDistancePips**: Distance from current price (default: 5)
-- **TrailingStartAfterTPHit**: Only start trailing after TP1/2/3/4/5 hits
 
 ### ✅ Time Filter
 - **EnableTimeFilter**: Only trade during specific times

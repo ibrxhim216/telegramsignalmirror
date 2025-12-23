@@ -75,10 +75,6 @@ input bool     ForceMarketExecution = false;            // Force Market Executio
 input bool     IgnoreWithoutSL = false;                 // Ignore Trades without SL
 input bool     IgnoreWithoutTP = false;                 // Ignore Trades without TP
 input bool     CheckAlreadyOpenedOrder = false;         // Check Already Opened Order with Same Pair
-enum ENUM_SAME_PAIR_MODE { ALLOWED, NOT_ALLOWED, HEDGE_ONLY };
-input ENUM_SAME_PAIR_MODE SamePairMode = ALLOWED;       // Multi Trades on Same Pair
-enum ENUM_SAME_PAIR_CHECK { TODAY, ALL_TIME };
-input ENUM_SAME_PAIR_CHECK SamePairCheckType = TODAY;   // Same Pair Check Type
 input int      PipsTolerance = 7;                       // Pips Tolerance for Market Execution
 
 // Breakeven Settings
@@ -87,13 +83,11 @@ input bool     EnableBreakeven = false;                 // Enable Breakeven
 enum ENUM_MOVE_SL_TYPE { ONLY_TO_ENTRY, ENTRY_PLUS_BUFFER };
 input ENUM_MOVE_SL_TYPE MoveSlToEntryType = ENTRY_PLUS_BUFFER; // Move SL to Entry Type
 input double   MoveSlAfterXPips = 0;                    // Move SL After X Pips Profit (0=disabled)
-input double   BreakevenPips = 2;                       // Breakeven Buffer Pips
+input double   BreakevenPips = 0;                       // Breakeven Buffer Pips
 input bool     MoveSlAfterTPHit = false;                // Move SL to Breakeven after TP Hit
 
 // Partial Close Settings
 input group "========== PARTIAL CLOSE SETTINGS =========="
-input double   PartialClosePercent = 25;                // Partial Close % of Lots (default)
-input double   HalfClosePercent = 50;                   // Half Close % of Lots
 input double   ClosePercentAtTP1 = 0;                   // Close % at TP1 (0=disabled)
 input double   ClosePercentAtTP2 = 0;                   // Close % at TP2 (0=disabled)
 input double   ClosePercentAtTP3 = 0;                   // Close % at TP3 (0=disabled)
@@ -103,21 +97,15 @@ input double   ClosePercentAtTP5 = 0;                   // Close % at TP5 (0=dis
 // Trailing Stop Settings
 input group "========== TRAILING STOP SETTINGS =========="
 input bool     UseTrailingStop = false;                 // Use Trailing Stop
-input bool     TrailingAlsoMoveTP = false;              // Trailing Stop also moves TP
 input double   TrailingStartPips = 5;                   // Trailing Start after X Pips
 input double   TrailingStepPips = 1;                    // Trailing Step Pips
 input double   TrailingDistancePips = 5;                // Trailing Distance from Current Price
-input bool     UseTrailingStopTP = false;               // Use Trailing Stop for TP
-enum ENUM_TRAILING_START_TP { TS_NONE, TS_TP1, TS_TP2, TS_TP3, TS_TP4, TS_TP5 };
-input ENUM_TRAILING_START_TP TrailingStartAfterTPHit = TS_NONE; // Trailing Start after TP Hit
-input double   SmartProfitLockPercent = 50;             // Smart Profit Lock % when TP1 hits
 
 // Notifications & Comments
 input group "========== NOTIFICATIONS & COMMENTS =========="
 input bool     OnComment = true;                        // Add Comment to Trades
 input string   CustomComment = "TSM Signal";            // Custom Comment
 input bool     SendMT4Notifications = true;             // Send MT4 Push Notifications
-input bool     EnableEditMessage = false;               // Process Signal Provider Edits
 
 // Time Filter
 input group "========== TIME FILTER =========="
@@ -197,8 +185,10 @@ struct TradeInfo
    double takeProfits[5];
    int tpsHit;               // Bitmask of which TPs have been hit
    bool breakevenSet;
+   int breakevenRetries;     // Count breakeven modification attempts
    datetime openTime;
    SignalConfig config;
+   string signalGroupId;     // Groups orders from the same signal together
 };
 
 // Symbol mapping structure
@@ -1016,10 +1006,6 @@ void ProcessSignal(string signalJson)
       return;
    }
 
-   // Calculate lot size using signal-specific config
-   double lotSize = CalculateLotSize(symbol, entryPrice, stopLoss, config);
-   Print("Calculated Lot Size: ", lotSize, " (Mode: ", config.riskMode, ")");
-
    // Parse order type (STOP, LIMIT) from direction
    string orderType = "";
    string baseDirection = direction;
@@ -1038,88 +1024,142 @@ void ProcessSignal(string signalJson)
    Print("Order Type: ", orderType == "" ? "MARKET" : orderType);
    Print("Base Direction: ", baseDirection);
 
-   // Execute trade with retry logic
-   int ticket = 0;
-   int retries = 0;
+   // Prepare lot sizes for each TP using RiskTP1-5
+   double lotSizes[5];
+   lotSizes[0] = RiskTP1;
+   lotSizes[1] = RiskTP2;
+   lotSizes[2] = RiskTP3;
+   lotSizes[3] = RiskTP4;
+   lotSizes[4] = RiskTP5;
 
-   // Set TP1 on order for visual feedback on chart
-   // EA will still manage partial closes and update TP after each level
-   double orderTP = takeProfits[0]; // Set TP1 on order
-   Print("Setting TP on order: ", orderTP);
-
-   while(ticket == 0 && retries < config.maxRetries)
+   // Count how many TPs we have
+   int tpCount = 0;
+   for(int i = 0; i < 5; i++)
    {
-      if(baseDirection == "BUY")
-      {
-         if(orderType == "STOP")
-            ticket = ExecuteBuyStop(symbol, entryPrice, lotSize, stopLoss, orderTP, config.customComment, config.slippage);
-         else if(orderType == "LIMIT")
-            ticket = ExecuteBuyLimit(symbol, entryPrice, lotSize, stopLoss, orderTP, config.customComment, config.slippage);
-         else
-            ticket = ExecuteBuy(symbol, lotSize, stopLoss, orderTP, config.customComment, config.slippage);
-      }
-      else if(baseDirection == "SELL")
-      {
-         if(orderType == "STOP")
-            ticket = ExecuteSellStop(symbol, entryPrice, lotSize, stopLoss, orderTP, config.customComment, config.slippage);
-         else if(orderType == "LIMIT")
-            ticket = ExecuteSellLimit(symbol, entryPrice, lotSize, stopLoss, orderTP, config.customComment, config.slippage);
-         else
-            ticket = ExecuteSell(symbol, lotSize, stopLoss, orderTP, config.customComment, config.slippage);
-      }
-      else
-      {
-         Print("❌ ERROR: Unknown direction: ", direction);
-         AcknowledgeSignal(signalId, "error", "Unknown direction");
-         return;
-      }
-
-      retries++;
-
-      if(ticket == 0 && retries < config.maxRetries)
-      {
-         Print("⚠️  Order failed, retrying... (", retries, "/", config.maxRetries, ")");
-         Sleep(1000); // Wait 1 second before retry
-      }
+      if(takeProfits[i] != 0) tpCount++;
    }
 
-   // Send acknowledgment
-   if(ticket > 0)
+   Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
+
+   // Store all ticket numbers for this signal (initialize to 0!)
+   int tickets[5] = {0, 0, 0, 0, 0};
+   int successCount = 0;
+
+   // Create separate orders for each TP level
+   for(int tpIdx = 0; tpIdx < 5; tpIdx++)
    {
-      // Track trade for breakeven/trailing/partial close
-      TrackTrade(ticket, symbol, entryPrice, stopLoss, takeProfits, config);
+      // Skip if no TP at this level
+      if(takeProfits[tpIdx] == 0) continue;
 
-      // Notify TSM Protector
-      OnProtectorTradeOpened();
+      // Skip if lot size is 0 or negative (means ignore this TP)
+      if(lotSizes[tpIdx] <= 0) continue;
 
-      // Get actual fill price (for market orders)
-      double actualEntryPrice = entryPrice;
-      if(actualEntryPrice == 0 && OrderSelect(ticket, SELECT_BY_TICKET))
+      double tpLotSize = lotSizes[tpIdx];
+      double tpPrice = takeProfits[tpIdx];
+
+      Print("📈 Creating order #", tpIdx+1, " for TP", tpIdx+1, " at ", tpPrice, " with lot ", tpLotSize);
+
+      int ticket = 0;
+      int retries = 0;
+
+      while(ticket == 0 && retries < config.maxRetries)
       {
-         actualEntryPrice = OrderOpenPrice();
-      }
-
-      // Determine order status: PENDING (waiting to be filled) or FILLED (already filled)
-      string orderStatus = "FILLED"; // Default to FILLED
-      if(OrderSelect(ticket, SELECT_BY_TICKET))
-      {
-         // Check OrderType(): OP_BUYLIMIT(2), OP_SELLLIMIT(3), OP_BUYSTOP(4), OP_SELLSTOP(5) are pending
-         // OP_BUY(0) and OP_SELL(1) are filled positions
-         if(OrderType() >= 2)
+         if(baseDirection == "BUY")
          {
-            orderStatus = "PENDING";
+            if(orderType == "STOP")
+               ticket = ExecuteBuyStop(symbol, entryPrice, tpLotSize, stopLoss, tpPrice, config.customComment + " TP" + IntegerToString(tpIdx+1), config.slippage);
+            else if(orderType == "LIMIT")
+               ticket = ExecuteBuyLimit(symbol, entryPrice, tpLotSize, stopLoss, tpPrice, config.customComment + " TP" + IntegerToString(tpIdx+1), config.slippage);
+            else
+               ticket = ExecuteBuy(symbol, tpLotSize, stopLoss, tpPrice, config.customComment + " TP" + IntegerToString(tpIdx+1), config.slippage);
+         }
+         else if(baseDirection == "SELL")
+         {
+            if(orderType == "STOP")
+               ticket = ExecuteSellStop(symbol, entryPrice, tpLotSize, stopLoss, tpPrice, config.customComment + " TP" + IntegerToString(tpIdx+1), config.slippage);
+            else if(orderType == "LIMIT")
+               ticket = ExecuteSellLimit(symbol, entryPrice, tpLotSize, stopLoss, tpPrice, config.customComment + " TP" + IntegerToString(tpIdx+1), config.slippage);
+            else
+               ticket = ExecuteSell(symbol, tpLotSize, stopLoss, tpPrice, config.customComment + " TP" + IntegerToString(tpIdx+1), config.slippage);
+         }
+
+         retries++;
+
+         if(ticket == 0 && retries < config.maxRetries)
+         {
+            Print("⚠️  Order failed, retrying... (", retries, "/", config.maxRetries, ")");
+            Sleep(1000);
          }
       }
 
-      // Send ticket, entry price, and order status in ACK
-      string ackMessage = IntegerToString(ticket) + "|" + DoubleToString(actualEntryPrice, 5) + "|" + orderStatus;
+      if(ticket > 0)
+      {
+         tickets[tpIdx] = ticket;
+         successCount++;
+         Print("✅ Order #", tpIdx+1, " created successfully! Ticket: ", ticket);
+      }
+      else
+      {
+         tickets[tpIdx] = 0;
+         Print("❌ Failed to create order #", tpIdx+1, " after ", retries, " retries");
+      }
+   }
+
+   // Track all orders and send acknowledgment
+   if(successCount > 0)
+   {
+      Print("✅ Successfully created ", successCount, " out of ", tpCount, " orders");
+
+      // Track all orders with the same signal group ID (using first ticket as group ID)
+      string signalGroupId = signalId;
+
+      for(int i = 0; i < 5; i++)
+      {
+         if(tickets[i] > 0)
+         {
+            // Create single-TP array for this order
+            double singleTP[5] = {0, 0, 0, 0, 0};
+            singleTP[i] = takeProfits[i];
+
+            // Track this order
+            TrackTrade(tickets[i], symbol, entryPrice, stopLoss, singleTP, config, signalGroupId);
+
+            // Notify TSM Protector (once per order)
+            OnProtectorTradeOpened();
+         }
+      }
+
+      // Build acknowledgment message with all tickets
+      string ackMessage = "";
+      double actualEntryPrice = entryPrice;
+      string orderStatus = "FILLED";
+
+      for(int i = 0; i < 5; i++)
+      {
+         if(tickets[i] > 0)
+         {
+            if(ackMessage != "") ackMessage += ",";
+            ackMessage += IntegerToString(tickets[i]);
+
+            // Get actual entry from first order
+            if(actualEntryPrice == 0 && OrderSelect(tickets[i], SELECT_BY_TICKET))
+            {
+               actualEntryPrice = OrderOpenPrice();
+
+               // Check if pending
+               if(OrderType() >= 2) orderStatus = "PENDING";
+            }
+         }
+      }
+
+      ackMessage += "|" + DoubleToString(actualEntryPrice, 5) + "|" + orderStatus;
       AcknowledgeSignal(signalId, "success", ackMessage);
-      Print("✅ Trade executed successfully! Ticket: ", ticket, " | Status: ", orderStatus);
+      Print("✅ All trades executed successfully! Tickets: ", ackMessage);
    }
    else
    {
-      AcknowledgeSignal(signalId, "error", "Order execution failed after " + IntegerToString(retries) + " retries");
-      Print("❌ Trade execution failed after ", retries, " retries");
+      AcknowledgeSignal(signalId, "error", "Failed to create any orders");
+      Print("❌ Trade execution failed - no orders created");
    }
 
    Print("========================================");
@@ -1236,7 +1276,7 @@ bool HasOpenTrade(string symbol, string direction)
 //+------------------------------------------------------------------+
 //| Add trade to tracking array                                       |
 //+------------------------------------------------------------------+
-void TrackTrade(int ticket, string symbol, double entryPrice, double stopLoss, double &tps[], SignalConfig &config)
+void TrackTrade(int ticket, string symbol, double entryPrice, double stopLoss, double &tps[], SignalConfig &config, string groupId = "")
 {
    int size = ArraySize(activeTrades);
    ArrayResize(activeTrades, size + 1);
@@ -1256,10 +1296,12 @@ void TrackTrade(int ticket, string symbol, double entryPrice, double stopLoss, d
    ArrayCopy(activeTrades[size].takeProfits, tps);
    activeTrades[size].tpsHit = 0;
    activeTrades[size].breakevenSet = false;
+   activeTrades[size].breakevenRetries = 0;
    activeTrades[size].openTime = TimeCurrent();
    activeTrades[size].config = config;
+   activeTrades[size].signalGroupId = groupId;
 
-   Print("📊 Now tracking ticket ", ticket, " for breakeven/trailing/partial close");
+   Print("📊 Now tracking ticket ", ticket, " (Group: ", groupId, ") for breakeven/trailing/partial close");
 }
 
 //+------------------------------------------------------------------+
@@ -1549,10 +1591,30 @@ void MonitorActiveTrades()
          continue;
       }
 
-      // Skip pending orders (not yet filled)
+      // Handle pending orders
       int orderType = OrderType();
       if(orderType > 1) // Pending orders have types 2-5
       {
+         // Check if we should remove pending orders after N seconds
+         if(activeTrades[i].config.removePendingAfter > 0)
+         {
+            datetime orderOpenTime = OrderOpenTime();
+            int elapsedSeconds = (int)(TimeCurrent() - orderOpenTime);
+
+            if(elapsedSeconds >= activeTrades[i].config.removePendingAfter)
+            {
+               if(OrderDelete(activeTrades[i].ticket))
+               {
+                  Print("🗑️ Removed pending order #", activeTrades[i].ticket, " after ", elapsedSeconds, " seconds");
+                  // Remove from tracking
+                  ArrayRemove(activeTrades, i, 1);
+               }
+               else
+               {
+                  Print("❌ Failed to remove pending order #", activeTrades[i].ticket, " - Error: ", GetLastError());
+               }
+            }
+         }
          continue;
       }
 
@@ -1593,12 +1655,14 @@ void MonitorActiveTrades()
 
          if(shouldMoveToBreakeven)
          {
-            double newSL = activeTrades[i].entryPrice +
+            // Use actual fill price (not signal entry price)
+            double actualEntry = OrderOpenPrice();
+            double newSL = actualEntry +
                (activeTrades[i].config.breakevenPips * point * (isBuy ? 1 : -1));
 
             if(OrderModify(activeTrades[i].ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrNONE))
             {
-               Print("✅ Breakeven set for ticket ", activeTrades[i].ticket, " at ", newSL);
+               Print("✅ Breakeven set for ticket ", activeTrades[i].ticket, " at ", newSL, " (Entry: ", actualEntry, ")");
                activeTrades[i].breakevenSet = true;
                activeTrades[i].stopLoss = newSL;
             }
@@ -1626,7 +1690,81 @@ void MonitorActiveTrades()
          }
       }
 
-      // Partial close logic (check each TP level)
+      // Multi-Order Breakeven: When any order in a signal group hits TP,
+      // move SL of all other orders in that group to their entry price
+      if(activeTrades[i].signalGroupId != "" && !activeTrades[i].breakevenSet)
+      {
+         // Check if ANY order in this signal group has closed (TP hit)
+         bool anyTPHitInGroup = false;
+
+         for(int j = ArraySize(activeTrades) - 1; j >= 0; j--)
+         {
+            if(activeTrades[j].signalGroupId == activeTrades[i].signalGroupId)
+            {
+               // Check if this order in the group no longer exists (was closed by TP)
+               // Use SELECT_BY_TICKET with MODE_HISTORY to check if it's in history (closed)
+               if(OrderSelect(activeTrades[j].ticket, SELECT_BY_TICKET, MODE_HISTORY))
+               {
+                  // Order is in history = it's closed
+                  anyTPHitInGroup = true;
+                  break;
+               }
+            }
+         }
+
+         // If any TP in the group hit, move THIS order's SL to entry
+         if(anyTPHitInGroup)
+         {
+            // Check retry limit (stop after 10 attempts)
+            if(activeTrades[i].breakevenRetries >= 10)
+            {
+               Print("⚠️ Breakeven retry limit reached for ticket ", activeTrades[i].ticket, " - giving up");
+               activeTrades[i].breakevenSet = true; // Stop trying
+               continue;
+            }
+
+            // Make sure THIS order still exists and is open before modifying
+            if(OrderSelect(activeTrades[i].ticket, SELECT_BY_TICKET) && OrderCloseTime() == 0)
+            {
+               double actualEntry = OrderOpenPrice();
+               double currentSL = OrderStopLoss();
+               double newSL = actualEntry +
+                  (activeTrades[i].config.breakevenPips * point * (isBuy ? 1 : -1));
+
+               // Check if SL is already "close enough" (within 2 pips)
+               double slDifference = MathAbs(currentSL - newSL) / point;
+               if(slDifference < 2.0)
+               {
+                  Print("✅ SL already at breakeven for ticket ", activeTrades[i].ticket, " (within 2 pips)");
+                  activeTrades[i].breakevenSet = true;
+                  continue;
+               }
+
+               // Detect manual SL changes (if SL changed but we didn't track it)
+               if(currentSL != activeTrades[i].stopLoss && activeTrades[i].breakevenRetries > 0)
+               {
+                  Print("👤 User manually changed SL for ticket ", activeTrades[i].ticket, " - respecting manual control");
+                  activeTrades[i].breakevenSet = true;
+                  activeTrades[i].stopLoss = currentSL;
+                  continue;
+               }
+
+               // Attempt to modify SL
+               activeTrades[i].breakevenRetries++;
+               if(OrderModify(activeTrades[i].ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrNONE))
+               {
+                  Print("🎯 Group breakeven: Moved SL to entry for ticket ", activeTrades[i].ticket,
+                        " (Group: ", activeTrades[i].signalGroupId, ")");
+                  activeTrades[i].breakevenSet = true;
+                  activeTrades[i].stopLoss = newSL;
+               }
+               // else: Will retry on next tick (silently)
+            }
+         }
+      }
+
+      // Partial close logic (check each TP level) - DISABLED for multi-order approach
+      // Orders now have individual TPs and close automatically when TP is hit
       for(int tpIdx = 0; tpIdx < 5; tpIdx++)
       {
          // Skip if already hit
