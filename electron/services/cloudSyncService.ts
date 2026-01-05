@@ -62,7 +62,8 @@ export class CloudSyncService extends EventEmitter {
         symbol: signal.symbol,
         entryPrice: signal.entryPrice || null,
         stopLoss: signal.stopLoss || null,
-        takeProfit: signal.takeProfits && signal.takeProfits.length > 0 ? signal.takeProfits[0] : null,
+        takeProfit: signal.takeProfits && signal.takeProfits.length > 0 ? signal.takeProfits[0] : null, // For backward compatibility
+        takeProfits: signal.takeProfits && signal.takeProfits.length > 0 ? signal.takeProfits : null, // Send all TPs for cloud mode multi-TP splitting
         lotSize: signal.lotSize || null,
         comment: signal.comment || 'Telegram signal',
         channelId: channelId || null,

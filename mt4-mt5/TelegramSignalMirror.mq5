@@ -1035,7 +1035,7 @@ void ProcessSignal(string signalJson)
    int tpCount = 0;
    for(int i = 0; i < 5; i++)
    {
-      if(takeProfits[i] != 0) tpCount++;
+      if(takeProfits[i] != 0 || (i == 0 && takeProfits[0] == 0 && lotSizes[0] > 0)) tpCount++;
    }
 
    Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
@@ -1047,8 +1047,8 @@ void ProcessSignal(string signalJson)
    // Create separate orders for each TP level
    for(int tpIdx = 0; tpIdx < 5; tpIdx++)
    {
-      // Skip if no TP at this level
-      if(takeProfits[tpIdx] == 0) continue;
+      // Skip if no TP at this level (but allow TP=0 for first TP only, meaning "Open")
+      if(takeProfits[tpIdx] == 0 && tpIdx > 0) continue;
 
       // Skip if lot size is 0 or negative (means ignore this TP)
       if(lotSizes[tpIdx] <= 0) continue;

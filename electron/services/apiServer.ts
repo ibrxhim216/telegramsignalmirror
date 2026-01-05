@@ -321,12 +321,17 @@ export class ApiServer {
       ...signal,
       // Ensure stopLoss is a number (default to 0 if undefined)
       stopLoss: signal.stopLoss || 0,
-      // Extract first TP from takeProfits array and add as takeProfit1
+      // Extract TPs from takeProfits array - now supports up to 10 TPs (updated from 5)
       takeProfit1: signal.takeProfits && signal.takeProfits.length > 0 ? signal.takeProfits[0] : 0,
       takeProfit2: signal.takeProfits && signal.takeProfits.length > 1 ? signal.takeProfits[1] : 0,
       takeProfit3: signal.takeProfits && signal.takeProfits.length > 2 ? signal.takeProfits[2] : 0,
       takeProfit4: signal.takeProfits && signal.takeProfits.length > 3 ? signal.takeProfits[3] : 0,
       takeProfit5: signal.takeProfits && signal.takeProfits.length > 4 ? signal.takeProfits[4] : 0,
+      takeProfit6: signal.takeProfits && signal.takeProfits.length > 5 ? signal.takeProfits[5] : 0,
+      takeProfit7: signal.takeProfits && signal.takeProfits.length > 6 ? signal.takeProfits[6] : 0,
+      takeProfit8: signal.takeProfits && signal.takeProfits.length > 7 ? signal.takeProfits[7] : 0,
+      takeProfit9: signal.takeProfits && signal.takeProfits.length > 8 ? signal.takeProfits[8] : 0,
+      takeProfit10: signal.takeProfits && signal.takeProfits.length > 9 ? signal.takeProfits[9] : 0,
     }
 
     // Push to cloud - if signal has multiple TPs, push separate signals for each TP

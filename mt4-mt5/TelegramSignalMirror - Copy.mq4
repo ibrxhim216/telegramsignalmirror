@@ -75,6 +75,10 @@ input bool     ForceMarketExecution = false;            // Force Market Executio
 input bool     IgnoreWithoutSL = false;                 // Ignore Trades without SL
 input bool     IgnoreWithoutTP = false;                 // Ignore Trades without TP
 input bool     CheckAlreadyOpenedOrder = false;         // Check Already Opened Order with Same Pair
+enum ENUM_SAME_PAIR_MODE { ALLOWED, NOT_ALLOWED, HEDGE_ONLY };
+input ENUM_SAME_PAIR_MODE SamePairMode = ALLOWED;       // Multi Trades on Same Pair
+enum ENUM_SAME_PAIR_CHECK { TODAY, ALL_TIME };
+input ENUM_SAME_PAIR_CHECK SamePairCheckType = TODAY;   // Same Pair Check Type
 input int      PipsTolerance = 7;                       // Pips Tolerance for Market Execution
 
 // Breakeven Settings
@@ -83,11 +87,13 @@ input bool     EnableBreakeven = false;                 // Enable Breakeven
 enum ENUM_MOVE_SL_TYPE { ONLY_TO_ENTRY, ENTRY_PLUS_BUFFER };
 input ENUM_MOVE_SL_TYPE MoveSlToEntryType = ENTRY_PLUS_BUFFER; // Move SL to Entry Type
 input double   MoveSlAfterXPips = 0;                    // Move SL After X Pips Profit (0=disabled)
-input double   BreakevenPips = 0;                       // Breakeven Buffer Pips
+input double   BreakevenPips = 2;                       // Breakeven Buffer Pips
 input bool     MoveSlAfterTPHit = false;                // Move SL to Breakeven after TP Hit
 
 // Partial Close Settings
 input group "========== PARTIAL CLOSE SETTINGS =========="
+input double   PartialClosePercent = 25;                // Partial Close % of Lots (default)
+input double   HalfClosePercent = 50;                   // Half Close % of Lots
 input double   ClosePercentAtTP1 = 0;                   // Close % at TP1 (0=disabled)
 input double   ClosePercentAtTP2 = 0;                   // Close % at TP2 (0=disabled)
 input double   ClosePercentAtTP3 = 0;                   // Close % at TP3 (0=disabled)
@@ -97,15 +103,21 @@ input double   ClosePercentAtTP5 = 0;                   // Close % at TP5 (0=dis
 // Trailing Stop Settings
 input group "========== TRAILING STOP SETTINGS =========="
 input bool     UseTrailingStop = false;                 // Use Trailing Stop
+input bool     TrailingAlsoMoveTP = false;              // Trailing Stop also moves TP
 input double   TrailingStartPips = 5;                   // Trailing Start after X Pips
 input double   TrailingStepPips = 1;                    // Trailing Step Pips
 input double   TrailingDistancePips = 5;                // Trailing Distance from Current Price
+input bool     UseTrailingStopTP = false;               // Use Trailing Stop for TP
+enum ENUM_TRAILING_START_TP { TS_NONE, TS_TP1, TS_TP2, TS_TP3, TS_TP4, TS_TP5 };
+input ENUM_TRAILING_START_TP TrailingStartAfterTPHit = TS_NONE; // Trailing Start after TP Hit
+input double   SmartProfitLockPercent = 50;             // Smart Profit Lock % when TP1 hits
 
 // Notifications & Comments
 input group "========== NOTIFICATIONS & COMMENTS =========="
 input bool     OnComment = true;                        // Add Comment to Trades
 input string   CustomComment = "TSM Signal";            // Custom Comment
 input bool     SendMT4Notifications = true;             // Send MT4 Push Notifications
+input bool     EnableEditMessage = false;               // Process Signal Provider Edits
 
 // Time Filter
 input group "========== TIME FILTER =========="
@@ -185,7 +197,6 @@ struct TradeInfo
    double takeProfits[5];
    int tpsHit;               // Bitmask of which TPs have been hit
    bool breakevenSet;
-   int breakevenRetries;     // Count breakeven modification attempts
    datetime openTime;
    SignalConfig config;
    string signalGroupId;     // Groups orders from the same signal together
@@ -1036,7 +1047,7 @@ void ProcessSignal(string signalJson)
    int tpCount = 0;
    for(int i = 0; i < 5; i++)
    {
-      if(takeProfits[i] != 0 || (i == 0 && takeProfits[0] == 0 && lotSizes[0] > 0)) tpCount++;
+      if(takeProfits[i] != 0) tpCount++;
    }
 
    Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
@@ -1048,8 +1059,8 @@ void ProcessSignal(string signalJson)
    // Create separate orders for each TP level
    for(int tpIdx = 0; tpIdx < 5; tpIdx++)
    {
-      // Skip if no TP at this level (but allow TP=0 for first TP only, meaning "Open")
-      if(takeProfits[tpIdx] == 0 && tpIdx > 0) continue;
+      // Skip if no TP at this level
+      if(takeProfits[tpIdx] == 0) continue;
 
       // Skip if lot size is 0 or negative (means ignore this TP)
       if(lotSizes[tpIdx] <= 0) continue;
@@ -1296,7 +1307,6 @@ void TrackTrade(int ticket, string symbol, double entryPrice, double stopLoss, d
    ArrayCopy(activeTrades[size].takeProfits, tps);
    activeTrades[size].tpsHit = 0;
    activeTrades[size].breakevenSet = false;
-   activeTrades[size].breakevenRetries = 0;
    activeTrades[size].openTime = TimeCurrent();
    activeTrades[size].config = config;
    activeTrades[size].signalGroupId = groupId;
@@ -1715,42 +1725,13 @@ void MonitorActiveTrades()
          // If any TP in the group hit, move THIS order's SL to entry
          if(anyTPHitInGroup)
          {
-            // Check retry limit (stop after 10 attempts)
-            if(activeTrades[i].breakevenRetries >= 10)
-            {
-               Print("⚠️ Breakeven retry limit reached for ticket ", activeTrades[i].ticket, " - giving up");
-               activeTrades[i].breakevenSet = true; // Stop trying
-               continue;
-            }
-
             // Make sure THIS order still exists and is open before modifying
             if(OrderSelect(activeTrades[i].ticket, SELECT_BY_TICKET) && OrderCloseTime() == 0)
             {
                double actualEntry = OrderOpenPrice();
-               double currentSL = OrderStopLoss();
                double newSL = actualEntry +
                   (activeTrades[i].config.breakevenPips * point * (isBuy ? 1 : -1));
 
-               // Check if SL is already "close enough" (within 2 pips)
-               double slDifference = MathAbs(currentSL - newSL) / point;
-               if(slDifference < 2.0)
-               {
-                  Print("✅ SL already at breakeven for ticket ", activeTrades[i].ticket, " (within 2 pips)");
-                  activeTrades[i].breakevenSet = true;
-                  continue;
-               }
-
-               // Detect manual SL changes (if SL changed but we didn't track it)
-               if(currentSL != activeTrades[i].stopLoss && activeTrades[i].breakevenRetries > 0)
-               {
-                  Print("👤 User manually changed SL for ticket ", activeTrades[i].ticket, " - respecting manual control");
-                  activeTrades[i].breakevenSet = true;
-                  activeTrades[i].stopLoss = currentSL;
-                  continue;
-               }
-
-               // Attempt to modify SL
-               activeTrades[i].breakevenRetries++;
                if(OrderModify(activeTrades[i].ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrNONE))
                {
                   Print("🎯 Group breakeven: Moved SL to entry for ticket ", activeTrades[i].ticket,
@@ -1758,7 +1739,11 @@ void MonitorActiveTrades()
                   activeTrades[i].breakevenSet = true;
                   activeTrades[i].stopLoss = newSL;
                }
-               // else: Will retry on next tick (silently)
+               else
+               {
+                  int error = GetLastError();
+                  Print("⚠️ Failed to set group breakeven for ticket ", activeTrades[i].ticket, " - Error: ", error);
+               }
             }
          }
       }

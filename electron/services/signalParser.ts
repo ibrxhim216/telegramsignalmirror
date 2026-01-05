@@ -205,11 +205,13 @@ export class SignalParser {
 
   private extractTakeProfits(text: string): number[] | undefined {
     // Look for patterns like "TP1: 1.2345", "TP¹ 4325", "TP 1 @ 1.2345", "TAKE PROFIT: 1.2345"
+    // Updated to support TP1-TP10 (previously limited to TP1-TP5)
     const patterns = [
-      /TP[¹²³⁴⁵]?\s*[:@]?\s*([0-9]+\.?[0-9]*)/gi,  // TP¹ 4325 or TP1: 1.2345 (supports superscripts)
-      /TP\s*[1-5]?[:\s@]+([0-9]+\.[0-9]+)/gi,
-      /TAKE\s*PROFIT\s*[1-5]?[:\s@]+([0-9]+\.[0-9]+)/gi,
-      /TARGET\s*[1-5]?[:\s@]+([0-9]+\.[0-9]+)/gi,
+      /TP[¹²³⁴⁵⁶⁷⁸⁹¹⁰]?\s*[:@]?\s*([0-9]+\.?[0-9]*)/gi,  // TP¹ 4325 or TP1: 1.2345 (supports superscripts 1-10)
+      /TP\s*(?:[1-9]|10)?[:\s@]+([0-9]+\.[0-9]+)/gi,      // TP 1-10 with decimal
+      /TP\s*(?:[1-9]|10)?[:\s@]+([0-9]+)/gi,             // TP 1-10 without decimal (for Gold, indices)
+      /TAKE\s*PROFIT\s*(?:[1-9]|10)?[:\s@]+([0-9]+\.[0-9]+)/gi,
+      /TARGET\s*(?:[1-9]|10)?[:\s@]+([0-9]+\.[0-9]+)/gi,
     ]
 
     const tps: number[] = []

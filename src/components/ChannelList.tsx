@@ -12,6 +12,7 @@ export default function ChannelList({ isLoading }: ChannelListProps) {
   const { channels, activeChannels, setActiveChannels } = useAppStore()
   const [configChannelId, setConfigChannelId] = useState<number | null>(null)
   const [configChannelName, setConfigChannelName] = useState<string>('')
+  const [configChannelIsActive, setConfigChannelIsActive] = useState<boolean>(false)
 
   const toggleChannel = (channelId: number) => {
     console.log('Toggling channel:', channelId)
@@ -28,13 +29,16 @@ export default function ChannelList({ isLoading }: ChannelListProps) {
 
   const openConfig = (e: React.MouseEvent, channelId: number, channelName: string) => {
     e.stopPropagation()
+    const isActive = activeChannels.includes(channelId)
     setConfigChannelId(channelId)
     setConfigChannelName(channelName)
+    setConfigChannelIsActive(isActive)
   }
 
   const closeConfig = () => {
     setConfigChannelId(null)
     setConfigChannelName('')
+    setConfigChannelIsActive(false)
   }
 
   if (isLoading) {
@@ -115,6 +119,7 @@ export default function ChannelList({ isLoading }: ChannelListProps) {
           channelId={configChannelId}
           channelName={configChannelName}
           isOpen={true}
+          isMonitoring={configChannelIsActive}
           onClose={closeConfig}
         />
       )}

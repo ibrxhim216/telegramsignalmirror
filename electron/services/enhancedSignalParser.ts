@@ -361,7 +361,7 @@ export class EnhancedSignalParser {
     // Check configured entry keywords
     for (const keyword of keywords) {
       const keywordUpper = keyword.toUpperCase()
-      const pattern = new RegExp(`${keywordUpper}[:\\s@-]*([0-9]+\\.?[0-9]*)`, 'gi')
+      const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*)`, 'gi')
       const matches = text.matchAll(pattern)
 
       for (const match of matches) {
@@ -420,7 +420,7 @@ export class EnhancedSignalParser {
       for (const keyword of keywords) {
         const keywordUpper = keyword.toUpperCase()
         // Match pattern: optional emoji/special chars, then keyword, then separator and number
-        const pattern = new RegExp(`[^A-Z0-9]*${keywordUpper}[:\\s@\\-_*]+([0-9]+\\.?[0-9]*)`, 'gi')
+        const pattern = new RegExp(`[^A-Z0-9]*${keywordUpper}[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*)`, 'gi')
         const matches = text.matchAll(pattern)
 
         for (const match of matches) {
@@ -436,7 +436,7 @@ export class EnhancedSignalParser {
       for (const keyword of keywords) {
         const keywordUpper = keyword.toUpperCase()
         // Match pattern: keyword followed by separator and number
-        const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*]+([0-9]+\\.?[0-9]*)`, 'gi')
+        const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*)`, 'gi')
         const matches = text.matchAll(pattern)
 
         for (const match of matches) {
@@ -470,28 +470,44 @@ export class EnhancedSignalParser {
 
     // Mode 1: Separate Keywords - "TP1: 5, TP2: 10, TP3: 15" OR "TP: 200" (single)
     if (formatMode === 'separate_keywords') {
+      let maxTPIndex = -1  // Track the highest TP index we found
+
       for (const keyword of keywords) {
         const keywordUpper = keyword.toUpperCase()
 
-        // First, try to match numbered TPs (TP1, TP2, etc.)
+        // First, try to match numbered TPs (TP1-TP10)
         // Allow optional unicode/superscript characters after keyword (e.g., TP¹, TP², TP³)
-        const numberedPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[\\s]*([1-5])[:\\s@\\-_*]+([0-9]+\\.?[0-9]*)`, 'gi')
+        // Also matches "Open", "Running", etc. for TPs without fixed targets
+        const numberedPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[\\s]*([1-9]|10)[:\\s@\\-_*\`]+(?:([0-9]+\\.?[0-9]*)|OPEN|RUNNING|HOLD)`, 'gi')
         const numberedMatches = text.matchAll(numberedPattern)
         let foundNumbered = false
 
         for (const match of numberedMatches) {
           foundNumbered = true
           const tpIndex = parseInt(match[1]) - 1  // Convert TP1 -> index 0
-          const value = parseFloat(match[2])
+          const valueStr = match[2]  // This will be undefined if "OPEN/RUNNING/HOLD" was matched
 
-          if (!isNaN(value) && value > 0 && tpIndex >= 0 && tpIndex < 5) {
+          // Track the maximum TP index
+          if (tpIndex > maxTPIndex) {
+            maxTPIndex = tpIndex
+          }
+
+          // Ensure array has space for this TP
+          while (tps.length <= tpIndex) {
+            tps.push(0)
+          }
+
+          // If "Open" (no fixed target), set to 0 (which means "no TP" in MT4/MT5)
+          if (!valueStr) {
+            tps[tpIndex] = 0
+            logger.debug(`TP${tpIndex + 1} marked as Open/Running/Hold - will create order without TP target (TP=0)`)
+            continue
+          }
+
+          const value = parseFloat(valueStr)
+
+          if (!isNaN(value) && value > 0 && tpIndex >= 0 && tpIndex < 10) {
             const finalValue = inPipsMode ? -value : value  // Negative indicates pips
-
-            // Ensure array has space for this TP
-            while (tps.length <= tpIndex) {
-              tps.push(0)
-            }
-
             tps[tpIndex] = finalValue
             logger.debug(`Extracted TP${tpIndex + 1} in ${inPipsMode ? 'pips' : 'price'} mode: ${value}`)
           }
@@ -500,7 +516,7 @@ export class EnhancedSignalParser {
         // If no numbered TPs found, try plain "TP: 200" format (treat as TP1)
         if (!foundNumbered) {
           // Allow optional unicode/superscript characters after keyword before separator
-          const plainPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
+          const plainPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
           const plainMatches = text.matchAll(plainPattern)
 
           for (const match of plainMatches) {
@@ -522,9 +538,17 @@ export class EnhancedSignalParser {
         }
       }
 
-      // Remove trailing zeros (only for numbered format)
-      while (tps.length > 0 && tps[tps.length - 1] === 0) {
-        tps.pop()
+      // Only remove trailing zeros that come AFTER the highest TP index we found
+      // This preserves intentional zeros (like "TP5: Open") but removes placeholder zeros
+      if (maxTPIndex >= 0) {
+        while (tps.length > maxTPIndex + 1) {
+          tps.pop()
+        }
+      } else {
+        // No numbered TPs found at all, remove trailing zeros as before
+        while (tps.length > 0 && tps[tps.length - 1] === 0) {
+          tps.pop()
+        }
       }
     }
     // Mode 2: Comma Separated - "TP: 5, 10, 15, 20"
@@ -533,7 +557,7 @@ export class EnhancedSignalParser {
         const keywordUpper = keyword.toUpperCase()
         // Match pattern: keyword followed by comma-separated values
         // Allow optional unicode/superscript characters after keyword before separator
-        const pattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
+        const pattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
         const matches = text.matchAll(pattern)
 
         for (const match of matches) {

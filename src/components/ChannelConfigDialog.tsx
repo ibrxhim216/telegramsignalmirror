@@ -64,10 +64,11 @@ interface Props {
   channelId: number
   channelName: string
   isOpen: boolean
+  isMonitoring: boolean
   onClose: () => void
 }
 
-export default function ChannelConfigDialog({ channelId, channelName, isOpen, onClose }: Props) {
+export default function ChannelConfigDialog({ channelId, channelName, isOpen, isMonitoring, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<'signal' | 'update' | 'additional'>('signal')
   const [config, setConfig] = useState<ChannelConfig | null>(null)
   const [loading, setLoading] = useState(true)
@@ -279,6 +280,15 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, on
             <X size={20} />
           </button>
         </div>
+
+        {/* Warning Banner for Monitoring */}
+        {isMonitoring && (
+          <div className="bg-yellow-600/20 border-b border-yellow-600/50 p-3">
+            <p className="text-yellow-200 text-sm text-center">
+              ⚠️ This channel is currently being monitored. Stop monitoring before making changes to ensure settings are applied correctly.
+            </p>
+          </div>
+        )}
 
         {loading ? (
           <div className="p-8 text-center text-gray-400">Loading configuration...</div>

@@ -49,6 +49,10 @@ export class KeywordDetector {
     // Generate suggestions
     if (buy.length === 0 && sell.length === 0) {
       suggestions.push('⚠️ Could not detect BUY/SELL keywords. Please ensure your example signal contains "BUY" or "SELL".')
+    } else if (buy.length > 0 && sell.length === 0) {
+      suggestions.push('⚠️ Only BUY detected. If your provider also sends SELL signals, manually add: SELL, SHORT')
+    } else if (sell.length > 0 && buy.length === 0) {
+      suggestions.push('⚠️ Only SELL detected. If your provider also sends BUY signals, manually add: BUY, LONG')
     }
     if (takeProfit.length === 0) {
       suggestions.push('⚠️ Could not detect TP keywords. Common keywords: TP, TARGET, TAKE PROFIT')

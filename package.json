@@ -1,6 +1,6 @@
 {
   "name": "telegram-signal-mirror",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Desktop application that mirrors trading signals from Telegram to MT4/MT5/cTrader",
   "main": "electron/index.js",
   "scripts": {
