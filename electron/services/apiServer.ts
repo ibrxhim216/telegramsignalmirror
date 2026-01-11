@@ -334,73 +334,35 @@ export class ApiServer {
       takeProfit10: signal.takeProfits && signal.takeProfits.length > 9 ? signal.takeProfits[9] : 0,
     }
 
-    // Push to cloud - if signal has multiple TPs, push separate signals for each TP
+    // Push to cloud - send signal as-is without splitting
+    // NOTE: Multi-TP splitting disabled to allow EA's RiskTP1-5 parameters to work
     let cloudSignalId: string | undefined
-    let signalGroupId: string | undefined  // Will be set if signal has multiple TPs
+    let signalGroupId: string | undefined
 
     if (this.cloudSyncService) {
       try {
-        // Check if signal has multiple TPs
         const tpCount = signal.takeProfits?.length || 0
+        logger.info(`📊 Signal has ${tpCount} TPs - sending to cloud without splitting (EA will filter based on RiskTP settings)`)
 
-        if (tpCount > 1) {
-          // Multiple TPs - push separate signal for each TP level
-          // Generate a group ID to link all sub-signals together for group breakeven
-          signalGroupId = randomUUID()
-          logger.info(`📊 Signal has ${tpCount} TPs - pushing ${tpCount} separate signals to cloud with group ID: ${signalGroupId}`)
+        // Push signal with all TPs intact
+        const cloudId = await this.cloudSyncService.pushSignal(
+          signal,
+          channelId?.toString(),
+          channelName,
+          telegramMessageId
+        )
 
-          for (let i = 0; i < tpCount; i++) {
-            // Create a copy of signal with only this TP
-            const singleTPSignal: ParsedSignal = {
-              ...signal,
-              takeProfits: [signal.takeProfits![i]]
-            }
+        if (cloudId) {
+          cloudSignalId = cloudId
+          logger.debug(`Got cloud signal ID: ${cloudSignalId}`)
 
-            const cloudId = await this.cloudSyncService.pushSignal(
-              singleTPSignal,
-              channelId?.toString(),
-              channelName,
-              telegramMessageId,
-              signalGroupId  // Pass the group ID to link multi-TP signals
-            )
-
-            if (cloudId && i === 0) {
-              // Store first cloud signal ID as primary
-              cloudSignalId = cloudId
-              logger.debug(`Got cloud signal ID for TP${i + 1}: ${cloudId}`)
-            } else if (cloudId) {
-              logger.debug(`Got cloud signal ID for TP${i + 1}: ${cloudId}`)
-            }
-          }
-
-          // Store primary cloud signal ID in database
-          if (cloudSignalId && dbSignalId) {
+          // Store cloud signal ID in database if we have a dbSignalId
+          if (dbSignalId) {
             const { getDatabase, saveDatabase } = require('../database')
             const db = getDatabase()
             db.run('UPDATE signals SET cloud_signal_id = ? WHERE id = ?', [cloudSignalId, dbSignalId])
             saveDatabase()
             logger.debug(`Stored cloud signal ID ${cloudSignalId} for DB signal ${dbSignalId}`)
-          }
-        } else {
-          // Single or no TP - push normally
-          const cloudId = await this.cloudSyncService.pushSignal(
-            signal,
-            channelId?.toString(),
-            channelName,
-            telegramMessageId
-          )
-          if (cloudId) {
-            cloudSignalId = cloudId
-            logger.debug(`Got cloud signal ID: ${cloudSignalId}`)
-
-            // Store cloud signal ID in database if we have a dbSignalId
-            if (dbSignalId) {
-              const { getDatabase, saveDatabase } = require('../database')
-              const db = getDatabase()
-              db.run('UPDATE signals SET cloud_signal_id = ? WHERE id = ?', [cloudSignalId, dbSignalId])
-              saveDatabase()
-              logger.debug(`Stored cloud signal ID ${cloudSignalId} for DB signal ${dbSignalId}`)
-            }
           }
         }
       } catch (error: any) {
@@ -408,6 +370,19 @@ export class ApiServer {
         // Continue execution even if cloud push fails
       }
     }
+
+    // DISABLED: Multi-TP splitting logic for cloud
+    // This was creating separate signals for each TP, preventing EA's TP filtering from working
+    // if (tpCount > 1) {
+    //   signalGroupId = randomUUID()
+    //   logger.info(`📊 Signal has ${tpCount} TPs - pushing ${tpCount} separate signals to cloud with group ID: ${signalGroupId}`)
+    //   for (let i = 0; i < tpCount; i++) {
+    //     const singleTPSignal: ParsedSignal = { ...signal, takeProfits: [signal.takeProfits![i]] }
+    //     const cloudId = await this.cloudSyncService.pushSignal(singleTPSignal, channelId?.toString(), channelName, telegramMessageId, signalGroupId)
+    //     if (cloudId && i === 0) { cloudSignalId = cloudId; logger.debug(`Got cloud signal ID for TP${i + 1}: ${cloudId}`) }
+    //     else if (cloudId) { logger.debug(`Got cloud signal ID for TP${i + 1}: ${cloudId}`) }
+    //   }
+    // }
 
     // Add to queue with cloud signal ID and signal group ID
     this.signalQueue.push({ id, signal: transformedSignal, config, dbSignalId, channelId, cloudSignalId, signalGroupId })

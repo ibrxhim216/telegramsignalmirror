@@ -148,7 +148,7 @@ export class KeywordDetector {
     const keywords: Set<string> = new Set()
     const patterns = [
       /\b(SL|S\.L)\s*[:@\-_*\s]/gi,
-      /\b(STOP\s*LOSS)\s*[:@\-_*\s]/gi,
+      /\b(STOP[\s\-]*LOSS)\s*[:@\-_*\s]/gi,  // Matches "STOP LOSS" or "STOP-LOSS"
       /\b(STOP)\s*[:@\-_*\s]/gi
     ]
 
@@ -177,9 +177,9 @@ export class KeywordDetector {
     const keywords: Set<string> = new Set()
     const patterns = [
       /\b(TP|T\.P)\s*[¹²³⁴⁵1-5]?\s*[:@\-_*\s]/gi,
-      /\b(TAKE\s*PROFIT)\s*[:@\-_*\s]/gi,
-      /\b(TARGET)\s*[:@\-_*\s]/gi,
-      /\b(OBJETIVO)\s*[:@\-_*\s]/gi  // Spanish
+      /\b(TAKE\s*PROFITS?)\s*[:@\-_*\s]/gi,  // Support singular and plural
+      /\b(TARGETS?)\s*[:@\-_*\s]/gi,         // Support singular and plural
+      /\b(OBJETIVOS?)\s*[:@\-_*\s]/gi        // Spanish (singular and plural)
     ]
 
     for (const pattern of patterns) {
@@ -206,7 +206,8 @@ export class KeywordDetector {
   private detectEntryKeywords(text: string): string[] {
     const keywords: Set<string> = new Set()
     const patterns = [
-      /\b(ENTRY|PRICE|AT|ZONA)\s*[:@\-_*\s]/gi,
+      /\b(ENTRY\s+POINT)\s*[:@\-_*\s]/gi,     // Compound keyword first
+      /\b(ENTRY|PRICE|AT|ZONA|ENTER)\s*[:@\-_*\s]/gi,
       /@\s*[0-9]/gi  // @ symbol
     ]
 
@@ -231,8 +232,8 @@ export class KeywordDetector {
    * Detect TP format mode (comma-separated vs numbered)
    */
   private detectTPFormat(text: string): 'comma_separated' | 'separate_keywords' {
-    // Check for numbered TP format (TP1, TP2, TP3 or TP¹, TP², TP³)
-    const numberedPattern = /TP\s*[¹²³⁴⁵1-5]\s*[:@\-_*]/gi
+    // Check for numbered TP format (TP1, TP2, TP3 or TP¹, TP², TP³ or TARGET 1, TARGET 2)
+    const numberedPattern = /(TP|TARGET|TARGETS)\s*[¹²³⁴⁵1-5]\s*[:@\-_*\(]/gi
     const numberedMatches = text.match(numberedPattern)
 
     if (numberedMatches && numberedMatches.length >= 2) {
@@ -240,7 +241,7 @@ export class KeywordDetector {
     }
 
     // Check for comma-separated format (TP: 100, 150, 200)
-    const commaPattern = /TP\s*[:@\-_*]\s*[0-9]+\.?[0-9]*\s*,/gi
+    const commaPattern = /(TP|TARGET|TARGETS)\s*[:@\-_*]\s*[0-9]+\.?[0-9]*\s*,/gi
     const commaMatches = text.match(commaPattern)
 
     if (commaMatches && commaMatches.length > 0) {
@@ -248,10 +249,21 @@ export class KeywordDetector {
     }
 
     // Check for repeated TP keywords (TP 100\nTP 200\nTP 300)
-    const repeatedTPPattern = /\bTP\s+[0-9]/gi
+    const repeatedTPPattern = /\b(TP|TARGET)\s+[0-9]/gi
     const repeatedMatches = text.match(repeatedTPPattern)
 
     if (repeatedMatches && repeatedMatches.length >= 2) {
+      return 'separate_keywords'
+    }
+
+    // Check for bare numbers format (TP keyword followed by multiple decimal numbers on separate lines)
+    // Example: "Targets:\n\n0.12470\n0.12251\n0.12015"
+    const bareNumberPattern = /(TP|TARGET|TARGETS)\s*[:@\-_*\s]+\n[\s\n]*([0-9]+\.[0-9]+[\s\n]+){2,}/gi
+    const bareMatches = text.match(bareNumberPattern)
+
+    if (bareMatches && bareMatches.length > 0) {
+      // Bare numbers detected - but the parser will handle this with extractBareNumberTPs
+      // Use separate_keywords as the mode since bare numbers will be a fallback
       return 'separate_keywords'
     }
 

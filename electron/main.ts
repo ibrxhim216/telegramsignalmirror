@@ -211,41 +211,39 @@ app.whenReady().then(async () => {
         logger.info('   Signal will still be pushed to cloud for distribution')
       }
 
-      // Process with multi-TP handler if signal has multiple TPs
+      // Send signal to EA without splitting
+      // NOTE: Multi-TP Handler is disabled to allow EA's RiskTP1-5 parameters to filter TPs
+      // Users can configure which TPs to trade (TP1-TP5) directly in the EA settings
       if (signal.parsed) {
-        const multiTPSettings = multiTPHandler.getSettings()
-
-        if (
-          multiTPSettings.enabled &&
-          signal.parsed.takeProfits &&
-          signal.parsed.takeProfits.length > 1
-        ) {
-          // Split into multiple orders
-          const fixedLotSize = 0.01 // TODO: Get from settings or calculate by risk
-          const splitOrders = multiTPHandler.splitSignal(signal.parsed, fixedLotSize)
-
-          if (splitOrders.length > 0) {
-            logger.info(`📊 Multi-TP: Split signal into ${splitOrders.length} orders`)
-
-            // Add each split order to API queue
-            for (const splitOrder of splitOrders) {
-              await apiServer?.addSignal({
-                ...signal.parsed,
-                takeProfit: splitOrder.takeProfit,
-                takeProfits: [splitOrder.takeProfit],
-                comment: splitOrder.comment,
-                groupId: splitOrder.groupId,
-              } as any, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
-            }
-          } else {
-            // Fallback to single order
-            await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
-          }
-        } else {
-          // Single TP or multi-TP disabled - send as-is
-          await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
-        }
+        await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
+        logger.debug(`Signal sent to EA with ${signal.parsed.takeProfits?.length || 0} TPs - EA will filter based on RiskTP settings`)
       }
+
+      // DISABLED: Multi-TP Handler splitting logic
+      // This was splitting one signal into multiple signals, preventing EA's TP filtering from working
+      // if (signal.parsed) {
+      //   const multiTPSettings = multiTPHandler.getSettings()
+      //   if (multiTPSettings.enabled && signal.parsed.takeProfits && signal.parsed.takeProfits.length > 1) {
+      //     const fixedLotSize = 0.01
+      //     const splitOrders = multiTPHandler.splitSignal(signal.parsed, fixedLotSize)
+      //     if (splitOrders.length > 0) {
+      //       logger.info(`📊 Multi-TP: Split signal into ${splitOrders.length} orders`)
+      //       for (const splitOrder of splitOrders) {
+      //         await apiServer?.addSignal({
+      //           ...signal.parsed,
+      //           takeProfit: splitOrder.takeProfit,
+      //           takeProfits: [splitOrder.takeProfit],
+      //           comment: splitOrder.comment,
+      //           groupId: splitOrder.groupId,
+      //         } as any, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
+      //       }
+      //     } else {
+      //       await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
+      //     }
+      //   } else {
+      //     await apiServer?.addSignal(signal.parsed, signal.config, signal.id, signal.channelId, signal.channelName, signal.messageId)
+      //   }
+      // }
     }
   })
 

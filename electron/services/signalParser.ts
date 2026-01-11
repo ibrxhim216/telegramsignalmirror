@@ -69,6 +69,13 @@ export class SignalParser {
   }
 
   private extractSymbol(text: string): string | null {
+    // Check for hashtag symbol pattern first (#POL, #BTC, #XAUUSD, etc.)
+    const hashtagPattern = /#([A-Z]{2,10})/
+    const hashtagMatch = text.match(hashtagPattern)
+    if (hashtagMatch) {
+      return hashtagMatch[1]
+    }
+
     // Common forex pairs
     const forexPairs = [
       'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
@@ -85,8 +92,12 @@ export class SignalParser {
       'US100', 'USTEC', 'SPX', 'DOW', 'NASDAQ'
     ]
 
-    // Crypto
-    const crypto = ['BTCUSD', 'ETHUSD', 'BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'BNBUSDT']
+    // Crypto - expanded list
+    const crypto = [
+      'BTCUSD', 'ETHUSD', 'BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'BNBUSDT',
+      'POL', 'POLUSDT', 'MATIC', 'MATICUSDT', 'ADAUSDT', 'SOLUSDT',
+      'DOGEUSDT', 'DOTUSDT', 'AVAXUSDT', 'LINKUSDT', 'UNIUSDT'
+    ]
 
     const allSymbols = [...forexPairs, ...metals, ...indices, ...crypto]
 

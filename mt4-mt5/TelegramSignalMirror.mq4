@@ -37,6 +37,11 @@ input double   RiskTP2 = 0.01;                          // Risk/Lot for TP2
 input double   RiskTP3 = 0.01;                          // Risk/Lot for TP3
 input double   RiskTP4 = 0.01;                          // Risk/Lot for TP4
 input double   RiskTP5 = 0.01;                          // Risk/Lot for TP5
+input double   RiskTP6 = 0.01;                          // Risk/Lot for TP6
+input double   RiskTP7 = 0.01;                          // Risk/Lot for TP7
+input double   RiskTP8 = 0.01;                          // Risk/Lot for TP8
+input double   RiskTP9 = 0.01;                          // Risk/Lot for TP9
+input double   RiskTP10 = 0.01;                         // Risk/Lot for TP10
 
 // Hidden settings (not exposed to user)
 int      MaxSpread = 9000;                               // Maximum Spread in Points (hidden)
@@ -60,12 +65,22 @@ input double   PredefinedTP2 = 0;                       // Predefined TP2 in Pip
 input double   PredefinedTP3 = 0;                       // Predefined TP3 in Pips
 input double   PredefinedTP4 = 0;                       // Predefined TP4 in Pips
 input double   PredefinedTP5 = 0;                       // Predefined TP5 in Pips
+input double   PredefinedTP6 = 0;                       // Predefined TP6 in Pips
+input double   PredefinedTP7 = 0;                       // Predefined TP7 in Pips
+input double   PredefinedTP8 = 0;                       // Predefined TP8 in Pips
+input double   PredefinedTP9 = 0;                       // Predefined TP9 in Pips
+input double   PredefinedTP10 = 0;                      // Predefined TP10 in Pips
 input bool     EnableRRMode = false;                    // Enable Risk:Reward Mode
 input double   RRRatioTP1 = 2.0;                        // RR Ratio for TP1 (TP1/SL)
 input double   RRRatioTP2 = 3.0;                        // RR Ratio for TP2 (TP2/SL)
 input double   RRRatioTP3 = 4.0;                        // RR Ratio for TP3 (TP3/SL)
 input double   RRRatioTP4 = 5.0;                        // RR Ratio for TP4 (TP4/SL)
 input double   RRRatioTP5 = 6.0;                        // RR Ratio for TP5 (TP5/SL)
+input double   RRRatioTP6 = 7.0;                        // RR Ratio for TP6 (TP6/SL)
+input double   RRRatioTP7 = 8.0;                        // RR Ratio for TP7 (TP7/SL)
+input double   RRRatioTP8 = 9.0;                        // RR Ratio for TP8 (TP8/SL)
+input double   RRRatioTP9 = 10.0;                       // RR Ratio for TP9 (TP9/SL)
+input double   RRRatioTP10 = 11.0;                      // RR Ratio for TP10 (TP10/SL)
 
 // Trade Filters
 input group "========== TRADE FILTERS =========="
@@ -93,6 +108,11 @@ input double   ClosePercentAtTP2 = 0;                   // Close % at TP2 (0=dis
 input double   ClosePercentAtTP3 = 0;                   // Close % at TP3 (0=disabled)
 input double   ClosePercentAtTP4 = 0;                   // Close % at TP4 (0=disabled)
 input double   ClosePercentAtTP5 = 0;                   // Close % at TP5 (0=disabled)
+input double   ClosePercentAtTP6 = 0;                   // Close % at TP6 (0=disabled)
+input double   ClosePercentAtTP7 = 0;                   // Close % at TP7 (0=disabled)
+input double   ClosePercentAtTP8 = 0;                   // Close % at TP8 (0=disabled)
+input double   ClosePercentAtTP9 = 0;                   // Close % at TP9 (0=disabled)
+input double   ClosePercentAtTP10 = 0;                  // Close % at TP10 (0=disabled)
 
 // Trailing Stop Settings
 input group "========== TRAILING STOP SETTINGS =========="
@@ -169,6 +189,11 @@ struct SignalConfig
    double closePercentAtTP3;
    double closePercentAtTP4;
    double closePercentAtTP5;
+   double closePercentAtTP6;
+   double closePercentAtTP7;
+   double closePercentAtTP8;
+   double closePercentAtTP9;
+   double closePercentAtTP10;
 
    // Other settings
    string customComment;
@@ -182,7 +207,7 @@ struct TradeInfo
    double entryPrice;
    double stopLoss;
    double originalSL;
-   double takeProfits[5];
+   double takeProfits[10];
    int tpsHit;               // Bitmask of which TPs have been hit
    bool breakevenSet;
    int breakevenRetries;     // Count breakeven modification attempts
@@ -740,12 +765,17 @@ void ProcessSignal(string signalJson)
    double stopLoss = StrToDouble(ExtractValue(signalJson, "stopLoss"));
 
    // Extract all take profits
-   double takeProfits[5];
+   double takeProfits[10];
    takeProfits[0] = StrToDouble(ExtractValue(signalJson, "takeProfit1"));
    takeProfits[1] = StrToDouble(ExtractValue(signalJson, "takeProfit2"));
    takeProfits[2] = StrToDouble(ExtractValue(signalJson, "takeProfit3"));
    takeProfits[3] = StrToDouble(ExtractValue(signalJson, "takeProfit4"));
    takeProfits[4] = StrToDouble(ExtractValue(signalJson, "takeProfit5"));
+   takeProfits[5] = StrToDouble(ExtractValue(signalJson, "takeProfit6"));
+   takeProfits[6] = StrToDouble(ExtractValue(signalJson, "takeProfit7"));
+   takeProfits[7] = StrToDouble(ExtractValue(signalJson, "takeProfit8"));
+   takeProfits[8] = StrToDouble(ExtractValue(signalJson, "takeProfit9"));
+   takeProfits[9] = StrToDouble(ExtractValue(signalJson, "takeProfit10"));
 
    // Validate symbol
    if(symbol == "")
@@ -1024,17 +1054,22 @@ void ProcessSignal(string signalJson)
    Print("Order Type: ", orderType == "" ? "MARKET" : orderType);
    Print("Base Direction: ", baseDirection);
 
-   // Prepare lot sizes for each TP using RiskTP1-5
-   double lotSizes[5];
+   // Prepare lot sizes for each TP using RiskTP1-10
+   double lotSizes[10];
    lotSizes[0] = RiskTP1;
    lotSizes[1] = RiskTP2;
    lotSizes[2] = RiskTP3;
    lotSizes[3] = RiskTP4;
    lotSizes[4] = RiskTP5;
+   lotSizes[5] = RiskTP6;
+   lotSizes[6] = RiskTP7;
+   lotSizes[7] = RiskTP8;
+   lotSizes[8] = RiskTP9;
+   lotSizes[9] = RiskTP10;
 
    // Count how many TPs we have
    int tpCount = 0;
-   for(int i = 0; i < 5; i++)
+   for(int i = 0; i < 10; i++)
    {
       if(takeProfits[i] != 0 || (i == 0 && takeProfits[0] == 0 && lotSizes[0] > 0)) tpCount++;
    }
@@ -1042,11 +1077,11 @@ void ProcessSignal(string signalJson)
    Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
 
    // Store all ticket numbers for this signal (initialize to 0!)
-   int tickets[5] = {0, 0, 0, 0, 0};
+   int tickets[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    int successCount = 0;
 
    // Create separate orders for each TP level
-   for(int tpIdx = 0; tpIdx < 5; tpIdx++)
+   for(int tpIdx = 0; tpIdx < 10; tpIdx++)
    {
       // Skip if no TP at this level (but allow TP=0 for first TP only, meaning "Open")
       if(takeProfits[tpIdx] == 0 && tpIdx > 0) continue;
@@ -1113,12 +1148,12 @@ void ProcessSignal(string signalJson)
       // Track all orders with the same signal group ID (using first ticket as group ID)
       string signalGroupId = signalId;
 
-      for(int i = 0; i < 5; i++)
+      for(int i = 0; i < 10; i++)
       {
          if(tickets[i] > 0)
          {
             // Create single-TP array for this order
-            double singleTP[5] = {0, 0, 0, 0, 0};
+            double singleTP[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
             singleTP[i] = takeProfits[i];
 
             // Track this order
@@ -1134,7 +1169,7 @@ void ProcessSignal(string signalJson)
       double actualEntryPrice = entryPrice;
       string orderStatus = "FILLED";
 
-      for(int i = 0; i < 5; i++)
+      for(int i = 0; i < 10; i++)
       {
          if(tickets[i] > 0)
          {
@@ -1561,6 +1596,11 @@ SignalConfig ParseSignalConfig(string signalJson)
    config.closePercentAtTP3 = ClosePercentAtTP3;
    config.closePercentAtTP4 = ClosePercentAtTP4;
    config.closePercentAtTP5 = ClosePercentAtTP5;
+   config.closePercentAtTP6 = ClosePercentAtTP6;
+   config.closePercentAtTP7 = ClosePercentAtTP7;
+   config.closePercentAtTP8 = ClosePercentAtTP8;
+   config.closePercentAtTP9 = ClosePercentAtTP9;
+   config.closePercentAtTP10 = ClosePercentAtTP10;
 
    // Other settings
    config.customComment = CustomComment;
@@ -1765,7 +1805,7 @@ void MonitorActiveTrades()
 
       // Partial close logic (check each TP level) - DISABLED for multi-order approach
       // Orders now have individual TPs and close automatically when TP is hit
-      for(int tpIdx = 0; tpIdx < 5; tpIdx++)
+      for(int tpIdx = 0; tpIdx < 10; tpIdx++)
       {
          // Skip if already hit
          if((activeTrades[i].tpsHit & (1 << tpIdx)) != 0) continue;
@@ -1786,6 +1826,11 @@ void MonitorActiveTrades()
             else if(tpIdx == 2) closePercent = activeTrades[i].config.closePercentAtTP3;
             else if(tpIdx == 3) closePercent = activeTrades[i].config.closePercentAtTP4;
             else if(tpIdx == 4) closePercent = activeTrades[i].config.closePercentAtTP5;
+            else if(tpIdx == 5) closePercent = activeTrades[i].config.closePercentAtTP6;
+            else if(tpIdx == 6) closePercent = activeTrades[i].config.closePercentAtTP7;
+            else if(tpIdx == 7) closePercent = activeTrades[i].config.closePercentAtTP8;
+            else if(tpIdx == 8) closePercent = activeTrades[i].config.closePercentAtTP9;
+            else if(tpIdx == 9) closePercent = activeTrades[i].config.closePercentAtTP10;
 
             if(closePercent > 0)
             {
@@ -1810,7 +1855,7 @@ void MonitorActiveTrades()
 
                   // Update TP to next level
                   double nextTP = 0;
-                  for(int nextIdx = tpIdx + 1; nextIdx < 5; nextIdx++)
+                  for(int nextIdx = tpIdx + 1; nextIdx < 10; nextIdx++)
                   {
                      if(activeTrades[i].takeProfits[nextIdx] != 0)
                      {

@@ -245,12 +245,10 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
       })
     }
 
-    // Close the generator modal
+    // Close the modal and clean up state
     setShowKeywordGenerator(false)
     setExampleSignal('')
     setDetectedKeywords(null)
-
-    alert('Keywords applied successfully! Don\'t forget to save your configuration.')
   }
 
   if (!isOpen) return null
@@ -729,15 +727,24 @@ function KeywordInput({ label, placeholder, value, onChange }: {
   onChange: (value: string) => void
 }) {
   const [localValue, setLocalValue] = useState(value)
+  const [isFocused, setIsFocused] = useState(false)
 
   useEffect(() => {
-    setLocalValue(value)
-  }, [value])
+    // Only sync from props when input is not focused
+    if (!isFocused) {
+      setLocalValue(value)
+    }
+  }, [value, isFocused])
 
   const handleBlur = () => {
+    setIsFocused(false)
     if (localValue !== value) {
       onChange(localValue)
     }
+  }
+
+  const handleFocus = () => {
+    setIsFocused(true)
   }
 
   return (
@@ -748,6 +755,7 @@ function KeywordInput({ label, placeholder, value, onChange }: {
         placeholder={placeholder}
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
+        onFocus={handleFocus}
         onBlur={handleBlur}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {

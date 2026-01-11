@@ -129,7 +129,8 @@ export class EnhancedSignalParser {
     let stopLoss = this.extractStopLoss(normalized, config)
 
     // Extract take profits using configured keywords (may be pips, indicated by negative values)
-    let takeProfits = this.extractTakeProfits(normalized, config)
+    // Pass entry, SL, and direction for smart bare number extraction
+    let takeProfits = this.extractTakeProfits(normalized, config, direction, entryPrice, stopLoss)
 
     // Convert pips to actual prices if entry price is available
     if (entryPrice !== undefined && !Array.isArray(entryPrice)) {
@@ -346,8 +347,9 @@ export class EnhancedSignalParser {
     }
 
     // 4. Also check for simple "BUY 4300" or "SELL 4300" format (without STOP/LIMIT)
+    // Allow optional filler words like "NOW", "AT", "PRICE" between direction and number
     if (prices.length === 0) {
-      const simpleOrderPattern = /(BUY|SELL)\s+([0-9]+\.?[0-9]*)/gi
+      const simpleOrderPattern = /(BUY|SELL)\s+(?:NOW|AT|PRICE)?\s*([0-9]+\.?[0-9]*)/gi
       const simpleMatches = text.matchAll(simpleOrderPattern)
       for (const match of simpleMatches) {
         const price = parseFloat(match[2])
@@ -361,7 +363,8 @@ export class EnhancedSignalParser {
     // Check configured entry keywords
     for (const keyword of keywords) {
       const keywordUpper = keyword.toUpperCase()
-      const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*)`, 'gi')
+      // Support optional parentheses/brackets around numbers: ( 4447 ) or [ 4447 ]
+      const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+[\\(\\[\\s]*([0-9]+\\.?[0-9]*)[\\)\\]\\s]*`, 'gi')
       const matches = text.matchAll(pattern)
 
       for (const match of matches) {
@@ -419,8 +422,8 @@ export class EnhancedSignalParser {
     if (config.advancedSettings.slInPips) {
       for (const keyword of keywords) {
         const keywordUpper = keyword.toUpperCase()
-        // Match pattern: optional emoji/special chars, then keyword, then separator and number
-        const pattern = new RegExp(`[^A-Z0-9]*${keywordUpper}[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*)`, 'gi')
+        // Match pattern: optional emoji/special chars, then keyword, then separator and number (with optional parentheses/brackets)
+        const pattern = new RegExp(`[^A-Z0-9]*${keywordUpper}[:\\s@\\-_*\`]+[\\(\\[\\s]*([0-9]+\\.?[0-9]*)[\\)\\]\\s]*`, 'gi')
         const matches = text.matchAll(pattern)
 
         for (const match of matches) {
@@ -435,8 +438,8 @@ export class EnhancedSignalParser {
       // When pips mode is disabled, extract as price
       for (const keyword of keywords) {
         const keywordUpper = keyword.toUpperCase()
-        // Match pattern: keyword followed by separator and number
-        const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*)`, 'gi')
+        // Match pattern: keyword followed by separator and number (with optional parentheses/brackets)
+        const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+[\\(\\[\\s]*([0-9]+\\.?[0-9]*)[\\)\\]\\s]*`, 'gi')
         const matches = text.matchAll(pattern)
 
         for (const match of matches) {
@@ -456,7 +459,13 @@ export class EnhancedSignalParser {
   /**
    * Extract take profits using configured keywords
    */
-  private extractTakeProfits(text: string, config: ChannelConfig): number[] | undefined {
+  private extractTakeProfits(
+    text: string,
+    config: ChannelConfig,
+    direction?: ParsedSignal['direction'],
+    entryPrice?: number | number[],
+    stopLoss?: number
+  ): number[] | undefined {
     let keywords = config.signalKeywords.takeProfit
     const tps: number[] = []
 
@@ -478,7 +487,8 @@ export class EnhancedSignalParser {
         // First, try to match numbered TPs (TP1-TP10)
         // Allow optional unicode/superscript characters after keyword (e.g., TP¹, TP², TP³)
         // Also matches "Open", "Running", etc. for TPs without fixed targets
-        const numberedPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[\\s]*([1-9]|10)[:\\s@\\-_*\`]+(?:([0-9]+\\.?[0-9]*)|OPEN|RUNNING|HOLD)`, 'gi')
+        // Support optional parentheses/brackets around numbers
+        const numberedPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[\\s]*([1-9]|10)[:\\s@\\-_*\`]+(?:[\\(\\[\\s]*([0-9]+\\.?[0-9]*)[\\)\\]\\s]*|OPEN|RUNNING|HOLD)`, 'gi')
         const numberedMatches = text.matchAll(numberedPattern)
         let foundNumbered = false
 
@@ -516,7 +526,8 @@ export class EnhancedSignalParser {
         // If no numbered TPs found, try plain "TP: 200" format (treat as TP1)
         if (!foundNumbered) {
           // Allow optional unicode/superscript characters after keyword before separator
-          const plainPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
+          // Support optional parentheses/brackets around numbers
+          const plainPattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*\`]+[\\(\\[\\s]*([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)[\\)\\]\\s]*`, 'gi')
           const plainMatches = text.matchAll(plainPattern)
 
           for (const match of plainMatches) {
@@ -557,7 +568,8 @@ export class EnhancedSignalParser {
         const keywordUpper = keyword.toUpperCase()
         // Match pattern: keyword followed by comma-separated values
         // Allow optional unicode/superscript characters after keyword before separator
-        const pattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*\`]+([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)`, 'gi')
+        // Support optional parentheses/brackets around numbers
+        const pattern = new RegExp(`${keywordUpper}[^A-Z0-9]*[:\\s@\\-_*\`]+[\\(\\[\\s]*([0-9]+\\.?[0-9]*(?:[\\s,;]+[0-9]+\\.?[0-9]*)*)[\\)\\]\\s]*`, 'gi')
         const matches = text.matchAll(pattern)
 
         for (const match of matches) {
@@ -579,6 +591,16 @@ export class EnhancedSignalParser {
       }
     }
 
+    // Fallback: Smart bare number extraction if TP keyword found but no TPs extracted
+    if (tps.length === 0 && this.hasTpKeyword(text, keywords) && direction && entryPrice !== undefined && !Array.isArray(entryPrice)) {
+      logger.debug('TP keyword found but no labeled TPs - attempting smart bare number extraction')
+      const bareNumbers = this.extractBareNumberTPs(text, keywords, direction, entryPrice, stopLoss)
+      if (bareNumbers && bareNumbers.length > 0) {
+        tps.push(...bareNumbers)
+        logger.debug(`Extracted ${bareNumbers.length} bare number TPs: ${bareNumbers.join(', ')}`)
+      }
+    }
+
     if (tps.length > 0) {
       logger.debug(`Total TPs extracted: ${tps.length}`)
     } else {
@@ -586,6 +608,111 @@ export class EnhancedSignalParser {
     }
 
     return tps.length > 0 ? tps : undefined
+  }
+
+  /**
+   * Check if text contains TP-related keywords
+   */
+  private hasTpKeyword(text: string, keywords: string[]): boolean {
+    const textUpper = text.toUpperCase()
+    for (const keyword of keywords) {
+      if (textUpper.includes(keyword.toUpperCase())) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * Extract bare numbers after TP keyword (no TP1, TP2 labels)
+   * Only extracts numbers that appear AFTER the TP keyword
+   * Applies directional validation: BUY = TPs > Entry, SELL = TPs < Entry
+   */
+  private extractBareNumberTPs(
+    text: string,
+    keywords: string[],
+    direction: ParsedSignal['direction'],
+    entryPrice: number,
+    stopLoss?: number
+  ): number[] {
+    const bareNumbers: number[] = []
+
+    // Find the position of the first TP keyword
+    let tpKeywordPos = -1
+    const textUpper = text.toUpperCase()
+
+    for (const keyword of keywords) {
+      const keywordUpper = keyword.toUpperCase()
+      const pos = textUpper.indexOf(keywordUpper)
+      if (pos !== -1 && (tpKeywordPos === -1 || pos < tpKeywordPos)) {
+        tpKeywordPos = pos
+      }
+    }
+
+    if (tpKeywordPos === -1) return bareNumbers
+
+    // Find SL keyword position to know where to stop looking for TPs
+    let slKeywordPos = -1
+    const slKeywords = ['SL', 'STOP LOSS', 'STOP', 'S.L']
+    for (const slKeyword of slKeywords) {
+      const pos = textUpper.indexOf(slKeyword, tpKeywordPos)
+      if (pos !== -1 && (slKeywordPos === -1 || pos < slKeywordPos)) {
+        slKeywordPos = pos
+      }
+    }
+
+    // Extract all numbers that appear AFTER the TP keyword but BEFORE the SL keyword (if found)
+    // Skip first 50 characters after TP keyword to avoid grabbing the keyword index itself (e.g., "TARGET 1")
+    const startPos = tpKeywordPos + 50
+    const endPos = slKeywordPos !== -1 ? slKeywordPos : text.length
+    const textBetween = text.substring(startPos, endPos)
+
+    const numberPattern = /([0-9]+\.[0-9]+)/g
+    const matches = textBetween.matchAll(numberPattern)
+
+    const isBuy = direction.includes('BUY')
+    const isSell = direction.includes('SELL')
+
+    for (const match of matches) {
+      const num = parseFloat(match[1])
+
+      // Skip invalid numbers
+      if (isNaN(num) || num <= 0) continue
+
+      // Skip if this number is the stop loss
+      if (stopLoss !== undefined && Math.abs(num - stopLoss) < 0.001) {
+        logger.debug(`Skipping ${num} - matches stop loss`)
+        continue
+      }
+
+      // Skip if this number is the entry price
+      if (Math.abs(num - entryPrice) < 0.001) {
+        logger.debug(`Skipping ${num} - matches entry price`)
+        continue
+      }
+
+      // Directional validation
+      if (isBuy && num > entryPrice) {
+        // For BUY, TPs should be above entry
+        bareNumbers.push(num)
+        logger.debug(`Accepted TP ${num} for BUY (above entry ${entryPrice})`)
+      } else if (isSell && num < entryPrice) {
+        // For SELL, TPs should be below entry
+        bareNumbers.push(num)
+        logger.debug(`Accepted TP ${num} for SELL (below entry ${entryPrice})`)
+      } else {
+        logger.debug(`Rejected ${num} - wrong direction (${direction}, entry: ${entryPrice})`)
+      }
+    }
+
+    // Sort TPs by distance from entry (closest first)
+    bareNumbers.sort((a, b) => {
+      const distA = Math.abs(a - entryPrice)
+      const distB = Math.abs(b - entryPrice)
+      return distA - distB
+    })
+
+    return bareNumbers
   }
 
   /**

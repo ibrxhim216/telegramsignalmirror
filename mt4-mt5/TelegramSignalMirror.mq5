@@ -29,15 +29,28 @@ input string   SymbolsToTrade = "";                     // Symbols to Trade - wh
 // Risk Management
 input group "========== RISK MANAGEMENT =========="
 enum ENUM_RISK_MODE { RISK_FIXED, RISK_PERCENT, RISK_AMOUNT };
-input ENUM_RISK_MODE RiskMode = RISK_FIXED;             // Risk Mode
+input ENUM_RISK_MODE RiskMode = RISK_FIXED;             // Risk Mode (applies to all enabled TPs)
 input double   FixedLotSize = 0.01;                     // Fixed Lot Size
 input double   RiskPercent = 2.0;                       // Risk % of Balance
 input double   RiskAmount = 100.0;                      // Risk $ Amount
-input double   RiskTP1 = 0.01;                          // Risk/Lot for TP1
-input double   RiskTP2 = 0.01;                          // Risk/Lot for TP2
-input double   RiskTP3 = 0.01;                          // Risk/Lot for TP3
-input double   RiskTP4 = 0.01;                          // Risk/Lot for TP4
-input double   RiskTP5 = 0.01;                          // Risk/Lot for TP5
+
+// TP Selection - Enable/Disable Individual TPs
+input group "========== TP SELECTION =========="
+input bool     EnableTP1 = true;                        // Enable TP1
+input bool     EnableTP2 = true;                        // Enable TP2
+input bool     EnableTP3 = true;                        // Enable TP3
+input bool     EnableTP4 = true;                        // Enable TP4
+input bool     EnableTP5 = true;                        // Enable TP5
+input bool     EnableTP6 = true;                        // Enable TP6
+input bool     EnableTP7 = true;                        // Enable TP7
+input bool     EnableTP8 = true;                        // Enable TP8
+input bool     EnableTP9 = true;                        // Enable TP9
+input bool     EnableTP10 = true;                       // Enable TP10
+
+// Split Entry Mode
+input group "========== SPLIT ENTRY MODE =========="
+input bool     EnableSplitEntry = false;                // Enable Split Entry Mode
+input string   SplitEntryInfo = "TP1=Market, TP2=Pending"; // Split Entry: TP1 @ market, TP2 @ signal entry
 
 // Hidden settings (not exposed to user)
 int      MaxSpread = 9000;                               // Maximum Spread in Points (hidden)
@@ -61,12 +74,22 @@ input double   PredefinedTP2 = 0;                       // Predefined TP2 in Pip
 input double   PredefinedTP3 = 0;                       // Predefined TP3 in Pips
 input double   PredefinedTP4 = 0;                       // Predefined TP4 in Pips
 input double   PredefinedTP5 = 0;                       // Predefined TP5 in Pips
+input double   PredefinedTP6 = 0;                       // Predefined TP6 in Pips
+input double   PredefinedTP7 = 0;                       // Predefined TP7 in Pips
+input double   PredefinedTP8 = 0;                       // Predefined TP8 in Pips
+input double   PredefinedTP9 = 0;                       // Predefined TP9 in Pips
+input double   PredefinedTP10 = 0;                      // Predefined TP10 in Pips
 input bool     EnableRRMode = false;                    // Enable Risk:Reward Mode
 input double   RRRatioTP1 = 2.0;                        // RR Ratio for TP1 (TP1/SL)
 input double   RRRatioTP2 = 3.0;                        // RR Ratio for TP2 (TP2/SL)
 input double   RRRatioTP3 = 4.0;                        // RR Ratio for TP3 (TP3/SL)
 input double   RRRatioTP4 = 5.0;                        // RR Ratio for TP4 (TP4/SL)
 input double   RRRatioTP5 = 6.0;                        // RR Ratio for TP5 (TP5/SL)
+input double   RRRatioTP6 = 7.0;                        // RR Ratio for TP6 (TP6/SL)
+input double   RRRatioTP7 = 8.0;                        // RR Ratio for TP7 (TP7/SL)
+input double   RRRatioTP8 = 9.0;                        // RR Ratio for TP8 (TP8/SL)
+input double   RRRatioTP9 = 10.0;                       // RR Ratio for TP9 (TP9/SL)
+input double   RRRatioTP10 = 11.0;                      // RR Ratio for TP10 (TP10/SL)
 
 // Trade Filters
 input group "========== TRADE FILTERS =========="
@@ -94,6 +117,11 @@ input double   ClosePercentAtTP2 = 0;                   // Close % at TP2 (0=dis
 input double   ClosePercentAtTP3 = 0;                   // Close % at TP3 (0=disabled)
 input double   ClosePercentAtTP4 = 0;                   // Close % at TP4 (0=disabled)
 input double   ClosePercentAtTP5 = 0;                   // Close % at TP5 (0=disabled)
+input double   ClosePercentAtTP6 = 0;                   // Close % at TP6 (0=disabled)
+input double   ClosePercentAtTP7 = 0;                   // Close % at TP7 (0=disabled)
+input double   ClosePercentAtTP8 = 0;                   // Close % at TP8 (0=disabled)
+input double   ClosePercentAtTP9 = 0;                   // Close % at TP9 (0=disabled)
+input double   ClosePercentAtTP10 = 0;                  // Close % at TP10 (0=disabled)
 
 // Trailing Stop Settings
 input group "========== TRAILING STOP SETTINGS =========="
@@ -170,6 +198,11 @@ struct SignalConfig
    double closePercentAtTP3;
    double closePercentAtTP4;
    double closePercentAtTP5;
+   double closePercentAtTP6;
+   double closePercentAtTP7;
+   double closePercentAtTP8;
+   double closePercentAtTP9;
+   double closePercentAtTP10;
 
    // Other settings
    string customComment;
@@ -183,7 +216,7 @@ struct TradeInfo
    double entryPrice;
    double stopLoss;
    double originalSL;
-   double takeProfits[5];
+   double takeProfits[10];
    int tpsHit;               // Bitmask of which TPs have been hit
    bool breakevenSet;
    int breakevenRetries;     // Count breakeven modification attempts
@@ -199,6 +232,13 @@ struct SymbolMapping
    string toSymbol;
 };
 
+// Structure to track signal groups for TP filtering
+struct SignalGroupInfo {
+   string groupId;
+   int signalCount;  // How many signals received in this group
+   datetime lastSeen;
+};
+
 // Global variables
 CTrade trade;
 bool isConnected = false;
@@ -207,6 +247,7 @@ datetime lastModificationPoll = 0;
 string lastError = "";
 TradeInfo activeTrades[];     // Track all active trades for breakeven/trailing
 SymbolMapping customMappings[];  // Custom symbol mappings
+SignalGroupInfo signalGroups[];  // Track signal groups for TP filtering
 
 // TSM Protector Variables
 double protectorDailyPL = 0;          // Daily profit/loss tracker
@@ -734,12 +775,50 @@ void ProcessSignal(string signalJson)
    double stopLoss = StringToDouble(ExtractValue(signalJson, "stopLoss"));
 
    // Extract all take profits
-   double takeProfits[5];
+   double takeProfits[10];
    takeProfits[0] = StringToDouble(ExtractValue(signalJson, "takeProfit1"));
    takeProfits[1] = StringToDouble(ExtractValue(signalJson, "takeProfit2"));
    takeProfits[2] = StringToDouble(ExtractValue(signalJson, "takeProfit3"));
    takeProfits[3] = StringToDouble(ExtractValue(signalJson, "takeProfit4"));
    takeProfits[4] = StringToDouble(ExtractValue(signalJson, "takeProfit5"));
+   takeProfits[5] = StringToDouble(ExtractValue(signalJson, "takeProfit6"));
+   takeProfits[6] = StringToDouble(ExtractValue(signalJson, "takeProfit7"));
+   takeProfits[7] = StringToDouble(ExtractValue(signalJson, "takeProfit8"));
+   takeProfits[8] = StringToDouble(ExtractValue(signalJson, "takeProfit9"));
+   takeProfits[9] = StringToDouble(ExtractValue(signalJson, "takeProfit10"));
+
+   // Extract signal group ID (if cloud is splitting multi-TP signals)
+   string signalGroupId = ExtractValue(signalJson, "signalGroupId");
+
+   // Check if this signal should be filtered based on EnableTP settings
+   // Cloud splits multi-TP signals into separate signals, so we track which position this is
+   if(signalGroupId != "")
+   {
+      int groupPosition = GetSignalGroupPosition(signalGroupId);
+      bool tpEnabled = true;
+
+      // Check corresponding EnableTP setting based on position in group
+      if(groupPosition == 1) tpEnabled = EnableTP1;
+      else if(groupPosition == 2) tpEnabled = EnableTP2;
+      else if(groupPosition == 3) tpEnabled = EnableTP3;
+      else if(groupPosition == 4) tpEnabled = EnableTP4;
+      else if(groupPosition == 5) tpEnabled = EnableTP5;
+      else if(groupPosition == 6) tpEnabled = EnableTP6;
+      else if(groupPosition == 7) tpEnabled = EnableTP7;
+      else if(groupPosition == 8) tpEnabled = EnableTP8;
+      else if(groupPosition == 9) tpEnabled = EnableTP9;
+      else if(groupPosition == 10) tpEnabled = EnableTP10;
+      else tpEnabled = false;  // More than 10 signals in group, skip
+
+      if(!tpEnabled)
+      {
+         Print("🚫 Signal #", groupPosition, " in group filtered (EnableTP", groupPosition, "=OFF)");
+         AcknowledgeSignal(signalId, "skipped", "TP" + IntegerToString(groupPosition) + " disabled");
+         return;
+      }
+
+      Print("✅ Signal #", groupPosition, " in group (EnableTP", groupPosition, "=ON)");
+   }
 
    // Validate symbol
    if(symbol == "")
@@ -833,7 +912,7 @@ void ProcessSignal(string signalJson)
       }
 
       // Reverse all TPs
-      for(int i = 0; i < 5; i++)
+      for(int i = 0; i < 10; i++)
       {
          if(takeProfits[i] != 0 && entryPrice != 0)
          {
@@ -872,6 +951,11 @@ void ProcessSignal(string signalJson)
       takeProfits[2] = entryPrice + (slDistance * RRRatioTP3 * (isBuy ? 1 : -1));
       takeProfits[3] = entryPrice + (slDistance * RRRatioTP4 * (isBuy ? 1 : -1));
       takeProfits[4] = entryPrice + (slDistance * RRRatioTP5 * (isBuy ? 1 : -1));
+      takeProfits[5] = entryPrice + (slDistance * RRRatioTP6 * (isBuy ? 1 : -1));
+      takeProfits[6] = entryPrice + (slDistance * RRRatioTP7 * (isBuy ? 1 : -1));
+      takeProfits[7] = entryPrice + (slDistance * RRRatioTP8 * (isBuy ? 1 : -1));
+      takeProfits[8] = entryPrice + (slDistance * RRRatioTP9 * (isBuy ? 1 : -1));
+      takeProfits[9] = entryPrice + (slDistance * RRRatioTP10 * (isBuy ? 1 : -1));
       Print("🎯 TPs calculated by RR mode");
    }
    else if(TpOverrideMode == USE_PREDEFINED)
@@ -883,6 +967,11 @@ void ProcessSignal(string signalJson)
       if(PredefinedTP3 > 0) takeProfits[2] = entryPrice + (PredefinedTP3 * pipValue * (isBuy ? 1 : -1));
       if(PredefinedTP4 > 0) takeProfits[3] = entryPrice + (PredefinedTP4 * pipValue * (isBuy ? 1 : -1));
       if(PredefinedTP5 > 0) takeProfits[4] = entryPrice + (PredefinedTP5 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP6 > 0) takeProfits[5] = entryPrice + (PredefinedTP6 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP7 > 0) takeProfits[6] = entryPrice + (PredefinedTP7 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP8 > 0) takeProfits[7] = entryPrice + (PredefinedTP8 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP9 > 0) takeProfits[8] = entryPrice + (PredefinedTP9 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP10 > 0) takeProfits[9] = entryPrice + (PredefinedTP10 * pipValue * (isBuy ? 1 : -1));
       Print("🔧 TPs overridden with predefined values");
    }
 
@@ -891,7 +980,7 @@ void ProcessSignal(string signalJson)
    if(SlModificationPips != 0) stopLoss = stopLoss + (SlModificationPips * pipValue);
    if(TpModificationPips != 0)
    {
-      for(int i = 0; i < 5; i++)
+      for(int i = 0; i < 10; i++)
          if(takeProfits[i] != 0) takeProfits[i] = takeProfits[i] + (TpModificationPips * pipValue);
    }
 
@@ -919,7 +1008,7 @@ void ProcessSignal(string signalJson)
    }
 
    // Convert TPs from pips to prices if negative
-   for(int i = 0; i < 5; i++)
+   for(int i = 0; i < 10; i++)
    {
       if(takeProfits[i] < 0)
       {
@@ -1023,35 +1112,148 @@ void ProcessSignal(string signalJson)
    // Set trade parameters from config
    trade.SetDeviationInPoints(config.slippage);
 
-   // Prepare lot sizes for each TP using RiskTP1-5
-   double lotSizes[5];
-   lotSizes[0] = RiskTP1;
-   lotSizes[1] = RiskTP2;
-   lotSizes[2] = RiskTP3;
-   lotSizes[3] = RiskTP4;
-   lotSizes[4] = RiskTP5;
+   // Calculate base lot size using Risk Mode (applies to ALL enabled TPs)
+   double baseLotSize = CalculateLotSize(symbol, entryPrice, stopLoss, config);
+   Print("💰 Base lot size from Risk Mode: ", baseLotSize);
 
-   // Count how many TPs we have
-   int tpCount = 0;
-   for(int i = 0; i < 5; i++)
-   {
-      if(takeProfits[i] != 0 || (i == 0 && takeProfits[0] == 0 && lotSizes[0] > 0)) tpCount++;
-   }
+   // Prepare lot sizes for each TP using EnableTP1-10 switches
+   // All enabled TPs use the same lot size from Risk Mode
+   double lotSizes[10];
+   lotSizes[0] = EnableTP1 ? baseLotSize : 0;
+   lotSizes[1] = EnableTP2 ? baseLotSize : 0;
+   lotSizes[2] = EnableTP3 ? baseLotSize : 0;
+   lotSizes[3] = EnableTP4 ? baseLotSize : 0;
+   lotSizes[4] = EnableTP5 ? baseLotSize : 0;
+   lotSizes[5] = EnableTP6 ? baseLotSize : 0;
+   lotSizes[6] = EnableTP7 ? baseLotSize : 0;
+   lotSizes[7] = EnableTP8 ? baseLotSize : 0;
+   lotSizes[8] = EnableTP9 ? baseLotSize : 0;
+   lotSizes[9] = EnableTP10 ? baseLotSize : 0;
 
-   Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
+   Print("📊 TP Selection: TP1=", (EnableTP1?"ON":"OFF"), " TP2=", (EnableTP2?"ON":"OFF"), " TP3=", (EnableTP3?"ON":"OFF"), " TP4=", (EnableTP4?"ON":"OFF"), " TP5=", (EnableTP5?"ON":"OFF"), " TP6=", (EnableTP6?"ON":"OFF"), " TP7=", (EnableTP7?"ON":"OFF"), " TP8=", (EnableTP8?"ON":"OFF"), " TP9=", (EnableTP9?"ON":"OFF"), " TP10=", (EnableTP10?"ON":"OFF"));
+   Print("📊 Lot size for all enabled TPs: ", baseLotSize);
 
    // Store all ticket numbers for this signal (initialize to 0!)
-   ulong tickets[5] = {0, 0, 0, 0, 0};
+   ulong tickets[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    int successCount = 0;
 
-   // Create separate orders for each TP level
-   for(int tpIdx = 0; tpIdx < 5; tpIdx++)
+   // SPLIT ENTRY MODE: TP1 @ market, TP2 @ signal entry (pending)
+   if(EnableSplitEntry)
    {
-      // Skip if no TP at this level (but allow TP=0 for first TP only, meaning "Open")
-      if(takeProfits[tpIdx] == 0 && tpIdx > 0) continue;
+      Print("🔀 SPLIT ENTRY MODE: Creating 2 positions - TP1 @ market, TP2 @ pending");
 
-      // Skip if lot size is 0 or negative (means ignore this TP)
+      // Validate: Need TP1 and TP2 enabled and both TP values present
+      if(!EnableTP1 || !EnableTP2)
+      {
+         Print("⚠️  Split Entry Mode requires both EnableTP1 and EnableTP2 to be ON");
+         Print("❌ Skipping signal - please enable TP1 and TP2 or disable Split Entry Mode");
+         return;
+      }
+
+      if(takeProfits[0] == 0 || takeProfits[1] == 0)
+      {
+         Print("⚠️  Split Entry Mode requires signal to have both TP1 and TP2");
+         Print("❌ Skipping signal - this signal only has ", (takeProfits[0] != 0 ? "TP1" : "no TP1"), ", ", (takeProfits[1] != 0 ? "TP2" : "no TP2"));
+         return;
+      }
+
+      // Order 1: Market execution with TP1
+      Print("📈 Order 1: MARKET entry @ current price with TP1=", takeProfits[0]);
+      ulong ticket1 = 0;
+      int retries1 = 0;
+
+      while(ticket1 == 0 && retries1 < config.maxRetries)
+      {
+         if(baseDirection == "BUY")
+            ticket1 = ExecuteBuy(symbol, baseLotSize, stopLoss, takeProfits[0], config.customComment + " Market");
+         else
+            ticket1 = ExecuteSell(symbol, baseLotSize, stopLoss, takeProfits[0], config.customComment + " Market");
+
+         retries1++;
+         if(ticket1 == 0 && retries1 < config.maxRetries)
+         {
+            Print("⚠️  Market order failed, retrying... (", retries1, "/", config.maxRetries, ")");
+            Sleep(1000);
+         }
+      }
+
+      if(ticket1 > 0)
+      {
+         tickets[0] = ticket1;
+         successCount++;
+         Print("✅ Order 1 (Market) created: Ticket ", ticket1);
+      }
+      else
+      {
+         Print("❌ Failed to create market order after ", retries1, " retries");
+      }
+
+      // Order 2: Pending order at signal entry price with TP2
+      Print("📈 Order 2: PENDING entry @ ", entryPrice, " with TP2=", takeProfits[1]);
+      ulong ticket2 = 0;
+      int retries2 = 0;
+
+      while(ticket2 == 0 && retries2 < config.maxRetries)
+      {
+         if(baseDirection == "BUY")
+         {
+            if(orderType == "STOP")
+               ticket2 = ExecuteBuyStop(symbol, entryPrice, baseLotSize, stopLoss, takeProfits[1], config.customComment + " Pending");
+            else if(orderType == "LIMIT")
+               ticket2 = ExecuteBuyLimit(symbol, entryPrice, baseLotSize, stopLoss, takeProfits[1], config.customComment + " Pending");
+            else
+               ticket2 = ExecuteBuy(symbol, baseLotSize, stopLoss, takeProfits[1], config.customComment + " Pending");
+         }
+         else
+         {
+            if(orderType == "STOP")
+               ticket2 = ExecuteSellStop(symbol, entryPrice, baseLotSize, stopLoss, takeProfits[1], config.customComment + " Pending");
+            else if(orderType == "LIMIT")
+               ticket2 = ExecuteSellLimit(symbol, entryPrice, baseLotSize, stopLoss, takeProfits[1], config.customComment + " Pending");
+            else
+               ticket2 = ExecuteSell(symbol, baseLotSize, stopLoss, takeProfits[1], config.customComment + " Pending");
+         }
+
+         retries2++;
+         if(ticket2 == 0 && retries2 < config.maxRetries)
+         {
+            Print("⚠️  Pending order failed, retrying... (", retries2, "/", config.maxRetries, ")");
+            Sleep(1000);
+         }
+      }
+
+      if(ticket2 > 0)
+      {
+         tickets[1] = ticket2;
+         successCount++;
+         Print("✅ Order 2 (Pending) created: Ticket ", ticket2);
+      }
+      else
+      {
+         Print("❌ Failed to create pending order after ", retries2, " retries");
+      }
+   }
+   else
+   {
+      // NORMAL MODE: Create separate orders for each enabled TP
+      int tpCount = 0;
+      for(int i = 0; i < 10; i++)
+      {
+         // Count TPs that are both enabled AND have values in the signal
+         // Skip TPs with value=0 (not in signal) to avoid creating unwanted orders
+         if(lotSizes[i] > 0 && takeProfits[i] != 0) tpCount++;
+      }
+
+      Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
+
+      // Create separate orders for each TP level
+      for(int tpIdx = 0; tpIdx < 10; tpIdx++)
+   {
+      // Skip if TP is disabled (lot size = 0)
       if(lotSizes[tpIdx] <= 0) continue;
+
+      // Skip if TP has no value in signal (TP=0 means not present in signal)
+      if(takeProfits[tpIdx] == 0) continue;
 
       double tpLotSize = lotSizes[tpIdx];
       double tpPrice = takeProfits[tpIdx];
@@ -1102,17 +1304,19 @@ void ProcessSignal(string signalJson)
          tickets[tpIdx] = 0;
          Print("❌ Failed to create order #", tpIdx+1, " after ", retries, " retries");
       }
-   }
+      }  // End of for loop
+   }  // End of else (normal mode)
 
    // Track all orders and send acknowledgment
    if(successCount > 0)
    {
-      Print("✅ Successfully created ", successCount, " out of ", tpCount, " orders");
+      int displayCount = EnableSplitEntry ? 2 : successCount;
+      Print("✅ Successfully created ", displayCount, " orders");
 
       // Track all orders with the same signal group ID (using first ticket as group ID)
       string signalGroupId = signalId;
 
-      for(int i = 0; i < 5; i++)
+      for(int i = 0; i < 10; i++)
       {
          if(tickets[i] > 0)
          {
@@ -1133,7 +1337,7 @@ void ProcessSignal(string signalJson)
       double actualEntryPrice = entryPrice;
       string orderStatus = "FILLED";
 
-      for(int i = 0; i < 5; i++)
+      for(int i = 0; i < 10; i++)
       {
          if(tickets[i] > 0)
          {
@@ -1565,6 +1769,11 @@ SignalConfig ParseSignalConfig(string signalJson)
    config.closePercentAtTP3 = ClosePercentAtTP3;
    config.closePercentAtTP4 = ClosePercentAtTP4;
    config.closePercentAtTP5 = ClosePercentAtTP5;
+   config.closePercentAtTP6 = ClosePercentAtTP6;
+   config.closePercentAtTP7 = ClosePercentAtTP7;
+   config.closePercentAtTP8 = ClosePercentAtTP8;
+   config.closePercentAtTP9 = ClosePercentAtTP9;
+   config.closePercentAtTP10 = ClosePercentAtTP10;
 
    // Other settings
    config.customComment = CustomComment;
@@ -1783,7 +1992,7 @@ void MonitorActiveTrades()
       }
 
       // Partial close logic (check each TP level)
-      for(int tpIdx = 0; tpIdx < 5; tpIdx++)
+      for(int tpIdx = 0; tpIdx < 10; tpIdx++)
       {
          // Skip if already hit
          if((activeTrades[i].tpsHit & (1 << tpIdx)) != 0) continue;
@@ -1804,6 +2013,11 @@ void MonitorActiveTrades()
             else if(tpIdx == 2) closePercent = activeTrades[i].config.closePercentAtTP3;
             else if(tpIdx == 3) closePercent = activeTrades[i].config.closePercentAtTP4;
             else if(tpIdx == 4) closePercent = activeTrades[i].config.closePercentAtTP5;
+            else if(tpIdx == 5) closePercent = activeTrades[i].config.closePercentAtTP6;
+            else if(tpIdx == 6) closePercent = activeTrades[i].config.closePercentAtTP7;
+            else if(tpIdx == 7) closePercent = activeTrades[i].config.closePercentAtTP8;
+            else if(tpIdx == 8) closePercent = activeTrades[i].config.closePercentAtTP9;
+            else if(tpIdx == 9) closePercent = activeTrades[i].config.closePercentAtTP10;
 
             if(closePercent > 0)
             {
@@ -1819,7 +2033,7 @@ void MonitorActiveTrades()
 
                      // Update order TP to show next TP level on chart
                      double nextTP = 0;
-                     for(int nextIdx = tpIdx + 1; nextIdx < 5; nextIdx++)
+                     for(int nextIdx = tpIdx + 1; nextIdx < 10; nextIdx++)
                      {
                         if(activeTrades[i].takeProfits[nextIdx] != 0)
                         {
@@ -1929,6 +2143,51 @@ string ExtractValue(string json, string key)
    }
 
    return StringSubstr(json, startPos, endPos - startPos);
+}
+
+//+------------------------------------------------------------------+
+//| Get signal position in group (1st, 2nd, 3rd...) for TP filtering |
+//+------------------------------------------------------------------+
+int GetSignalGroupPosition(string groupId)
+{
+   if(groupId == "") return 1;  // No group ID = treat as first signal
+
+   datetime now = TimeCurrent();
+
+   // Clean up old groups (older than 5 minutes)
+   for(int i = ArraySize(signalGroups) - 1; i >= 0; i--)
+   {
+      if(now - signalGroups[i].lastSeen > 300)  // 5 minutes
+      {
+         // Remove old group
+         for(int j = i; j < ArraySize(signalGroups) - 1; j++)
+         {
+            signalGroups[j] = signalGroups[j + 1];
+         }
+         ArrayResize(signalGroups, ArraySize(signalGroups) - 1);
+      }
+   }
+
+   // Find existing group
+   for(int i = 0; i < ArraySize(signalGroups); i++)
+   {
+      if(signalGroups[i].groupId == groupId)
+      {
+         // Found group, increment count
+         signalGroups[i].signalCount++;
+         signalGroups[i].lastSeen = now;
+         return signalGroups[i].signalCount;
+      }
+   }
+
+   // New group, add it
+   int size = ArraySize(signalGroups);
+   ArrayResize(signalGroups, size + 1);
+   signalGroups[size].groupId = groupId;
+   signalGroups[size].signalCount = 1;
+   signalGroups[size].lastSeen = now;
+
+   return 1;  // First signal in this group
 }
 
 //+------------------------------------------------------------------+
