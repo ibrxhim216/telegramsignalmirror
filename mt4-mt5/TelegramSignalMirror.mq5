@@ -10,7 +10,7 @@
 
 // Server Connection
 input group "========== SERVER CONNECTION =========="
-input string   ApiServerURL = "https://telegramsignalmirror.com"; // API Server URL
+input string   ApiServerURL = "https://www.telegramsignalmirror.com"; // API Server URL
 
 // Hidden/Fixed settings
 int    PollInterval = 2;                                // Poll every 2 seconds
@@ -1321,7 +1321,7 @@ void ProcessSignal(string signalJson)
          if(tickets[i] > 0)
          {
             // Create single-TP array for this order
-            double singleTP[5] = {0, 0, 0, 0, 0};
+            double singleTP[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
             singleTP[i] = takeProfits[i];
 
             // Track this order
@@ -1685,7 +1685,7 @@ ulong ExecuteSellLimit(string symbol, double price, double lots, double sl, doub
 //+------------------------------------------------------------------+
 void AcknowledgeSignal(string signalId, string status, string message)
 {
-   string url = ApiServerURL + "/api/signals/acknowledge";
+   string url = ApiServerURL + "/api/signals/ack";
    string headers = "Content-Type: application/json\r\n";
 
    // Build JSON body - ensure proper escaping
@@ -1899,7 +1899,7 @@ void MonitorActiveTrades()
 
       // Multi-Order Breakeven: When any order in a signal group hits TP,
       // move SL of all other orders in that group to their entry price
-      if(activeTrades[i].signalGroupId != "" && !activeTrades[i].breakevenSet)
+      if(MoveSlAfterTPHit && activeTrades[i].signalGroupId != "" && !activeTrades[i].breakevenSet)
       {
          // Check if ANY order in this signal group has closed (TP hit)
          bool anyTPHitInGroup = false;

@@ -9,7 +9,7 @@
 
 // Server Connection
 input group "========== SERVER CONNECTION =========="
-input string   ApiServerURL = "https://telegramsignalmirror.com"; // API Server URL
+input string   ApiServerURL = "https://www.telegramsignalmirror.com"; // API Server URL
 
 // Hidden/Fixed settings
 int    PollInterval = 2;                                // Poll every 2 seconds
@@ -1522,7 +1522,7 @@ int ExecuteSellLimit(string symbol, double price, double lots, double sl, double
 //+------------------------------------------------------------------+
 void AcknowledgeSignal(string signalId, string status, string message)
 {
-   string url = ApiServerURL + "/api/signals/acknowledge";
+   string url = ApiServerURL + "/api/signals/ack";
    string headers = "Content-Type: application/json\r\n";
 
    // Build JSON body
@@ -1732,7 +1732,7 @@ void MonitorActiveTrades()
 
       // Multi-Order Breakeven: When any order in a signal group hits TP,
       // move SL of all other orders in that group to their entry price
-      if(activeTrades[i].signalGroupId != "" && !activeTrades[i].breakevenSet)
+      if(MoveSlAfterTPHit && activeTrades[i].signalGroupId != "" && !activeTrades[i].breakevenSet)
       {
          // Check if ANY order in this signal group has closed (TP hit)
          bool anyTPHitInGroup = false;
