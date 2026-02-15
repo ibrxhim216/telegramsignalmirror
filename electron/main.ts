@@ -39,6 +39,7 @@ import { licenseService } from './services/licenseService'
 import { visionAI } from './services/visionAI'
 import { accountService } from './services/accountService'
 import { keywordDetector } from './services/keywordDetector'
+import { UpdateService } from './services/updateService'
 import { logger } from './utils/logger'
 
 let mainWindow: BrowserWindow | null = null
@@ -47,6 +48,7 @@ let wsServer: WebSocketServer | null = null
 let apiServer: ApiServer | null = null
 let signalParser: SignalParser | null = null
 let cloudSync: CloudSyncService | null = null
+let updateService: UpdateService | null = null
 
 /**
  * Helper function to start or restart trade sync
@@ -525,6 +527,27 @@ app.whenReady().then(async () => {
     mainWindow?.webContents.send('telegram:error', error)
   })
 
+  // Initialize Update Service
+  updateService = new UpdateService()
+
+  // Update Service event listeners
+  updateService.on('update-available', (updateInfo) => {
+    logger.info(`Update available: v${updateInfo.latestVersion}`)
+    mainWindow?.webContents.send('update-available', updateInfo)
+  })
+
+  updateService.on('update-not-available', (updateInfo) => {
+    logger.info(`App is up to date: v${updateInfo.latestVersion}`)
+    mainWindow?.webContents.send('update-not-available', updateInfo)
+  })
+
+  updateService.on('error', (error) => {
+    logger.error(`Update check error: ${error}`)
+  })
+
+  // Start auto-update checks
+  updateService.startAutoUpdateCheck()
+
   createWindow()
 
   app.on('activate', () => {
@@ -553,6 +576,9 @@ app.on('before-quit', async () => {
   }
   if (cloudSync) {
     cloudSync.stopTradeSync()
+  }
+  if (updateService) {
+    updateService.stopAutoUpdateCheck()
   }
 })
 
@@ -903,6 +929,17 @@ ipcMain.handle('license:validateWithAPI', async () => {
   }
 })
 
+ipcMain.handle('license:forceRevalidate', async () => {
+  try {
+    logger.info('🔄 Force revalidation requested via IPC')
+    const result = await licenseService.forceRevalidate()
+    return { success: true, ...result }
+  } catch (error: any) {
+    logger.error('Force revalidate error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 // Vision AI Handlers
 ipcMain.handle('visionAI:getSettings', async () => {
   try {
@@ -1071,6 +1108,37 @@ ipcMain.handle('account:setActive', async (_, id: number, isActive: boolean) => 
     return { success: true }
   } catch (error: any) {
     logger.error('Set account active error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Update Service Handlers
+ipcMain.handle('update:check', async () => {
+  try {
+    const updateInfo = await updateService?.checkForUpdates()
+    return { success: true, updateInfo }
+  } catch (error: any) {
+    logger.error('Check for updates error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('update:download', async (_, downloadUrl: string) => {
+  try {
+    updateService?.downloadUpdate(downloadUrl)
+    return { success: true }
+  } catch (error: any) {
+    logger.error('Download update error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('update:getVersion', async () => {
+  try {
+    const version = updateService?.getCurrentVersion() || app.getVersion()
+    return { success: true, version }
+  } catch (error: any) {
+    logger.error('Get version error:', error)
     return { success: false, error: error.message }
   }
 })

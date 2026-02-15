@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import Dashboard from './components/Dashboard'
 import TelegramAuth from './components/TelegramAuth'
 import Login from './components/Login'
+import UpdateNotification from './components/UpdateNotification'
 import { useAppStore } from './store/appStore'
 
 function App() {
@@ -71,6 +72,7 @@ function App() {
   // Show dashboard if fully authenticated
   return (
     <div className="h-screen bg-gray-900 text-white">
+      <UpdateNotification />
       <Dashboard />
     </div>
   )

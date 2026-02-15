@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('electron', {
     isLoggedIn: () => ipcRenderer.invoke('license:isLoggedIn'),
     logout: () => ipcRenderer.invoke('license:logout'),
     validateWithAPI: () => ipcRenderer.invoke('license:validateWithAPI'),
+    forceRevalidate: () => ipcRenderer.invoke('license:forceRevalidate'),
 
     // Event listeners (singleton pattern)
     onUpdated: (callback: (license: any) => void) => {
@@ -178,6 +179,33 @@ contextBridge.exposeInMainWorld('electron', {
       return createSingletonListener('cloudSync:accountError', callback, (_: any, errorData: any) => callback(errorData))
     },
   },
+
+  // Update Service
+  update: {
+    check: () => ipcRenderer.invoke('update:check'),
+    download: (downloadUrl: string) => ipcRenderer.invoke('update:download', downloadUrl),
+    getVersion: () => ipcRenderer.invoke('update:getVersion'),
+
+    // Event listeners
+    onUpdateAvailable: (callback: (updateInfo: any) => void) => {
+      return createSingletonListener('update-available', callback, (_: any, updateInfo: any) => callback(updateInfo))
+    },
+    onUpdateNotAvailable: (callback: (updateInfo: any) => void) => {
+      return createSingletonListener('update-not-available', callback, (_: any, updateInfo: any) => callback(updateInfo))
+    },
+  },
+
+  // Helper for opening download URLs in browser
+  downloadUpdate: (url: string) => ipcRenderer.invoke('update:download', url),
+  on: (channel: string, callback: Function) => {
+    const validChannels = ['update-available', 'update-not-available']
+    if (validChannels.includes(channel)) {
+      ipcRenderer.on(channel, (_, data) => callback(data))
+    }
+  },
+  off: (channel: string, callback: Function) => {
+    ipcRenderer.removeListener(channel, callback as any)
+  },
 })
 
 // TypeScript declaration for window object
@@ -227,6 +255,7 @@ declare global {
         isLoggedIn: () => Promise<{ success: boolean; isLoggedIn?: boolean; error?: string }>
         logout: () => Promise<{ success: boolean; error?: string }>
         validateWithAPI: () => Promise<{ success: boolean; isValid?: boolean; license?: any; reason?: string; error?: string }>
+        forceRevalidate: () => Promise<{ success: boolean; isValid?: boolean; license?: any; reason?: string; error?: string }>
         onUpdated: (callback: (license: any) => void) => () => void
         onActivated: (callback: (license: any) => void) => () => void
         onTrialStarted: (callback: (license: any) => void) => () => void
@@ -260,6 +289,16 @@ declare global {
       cloudSync: {
         onAccountError: (callback: (errorData: any) => void) => () => void
       }
+      update: {
+        check: () => Promise<{ success: boolean; updateInfo?: any; error?: string }>
+        download: (downloadUrl: string) => Promise<{ success: boolean; error?: string }>
+        getVersion: () => Promise<{ success: boolean; version?: string; error?: string }>
+        onUpdateAvailable: (callback: (updateInfo: any) => void) => () => void
+        onUpdateNotAvailable: (callback: (updateInfo: any) => void) => () => void
+      }
+      downloadUpdate: (url: string) => Promise<any>
+      on: (channel: string, callback: Function) => void
+      off: (channel: string, callback: Function) => void
     }
   }
 }
