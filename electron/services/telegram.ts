@@ -131,8 +131,9 @@ export class TelegramService extends EventEmitter {
     }
 
     try {
+      // Fetch all channels/groups (no limit) - supports customers with 500+ channels
       const dialogs = await this.client.getDialogs({
-        limit: 100,
+        limit: undefined, // Unlimited - fetches all channels
       })
 
       const channels = dialogs

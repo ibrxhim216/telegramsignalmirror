@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAppStore } from '../store/appStore'
-import { Hash, Users, Loader2, Settings } from 'lucide-react'
+import { Hash, Users, Loader2, Settings, Search, X } from 'lucide-react'
 import clsx from 'clsx'
 import ChannelConfigDialog from './ChannelConfigDialog'
 
@@ -13,6 +13,8 @@ export default function ChannelList({ isLoading }: ChannelListProps) {
   const [configChannelId, setConfigChannelId] = useState<number | null>(null)
   const [configChannelName, setConfigChannelName] = useState<string>('')
   const [configChannelIsActive, setConfigChannelIsActive] = useState<boolean>(false)
+  const [searchTerm, setSearchTerm] = useState<string>('')
+  const [filterType, setFilterType] = useState<'all' | 'channel' | 'group'>('all')
 
   const toggleChannel = (channelId: number) => {
     console.log('Toggling channel:', channelId)
@@ -27,6 +29,26 @@ export default function ChannelList({ isLoading }: ChannelListProps) {
     }
   }
 
+  // Filter and search channels
+  const filteredChannels = useMemo(() => {
+    return channels.filter(channel => {
+      // Apply type filter
+      if (filterType !== 'all' && channel.type !== filterType) {
+        return false
+      }
+
+      // Apply search filter
+      if (searchTerm) {
+        const search = searchTerm.toLowerCase()
+        const titleMatch = channel.title.toLowerCase().includes(search)
+        const usernameMatch = channel.username?.toLowerCase().includes(search)
+        return titleMatch || usernameMatch
+      }
+
+      return true
+    })
+  }, [channels, searchTerm, filterType])
+
   const openConfig = (e: React.MouseEvent, channelId: number, channelName: string) => {
     e.stopPropagation()
     const isActive = activeChannels.includes(channelId)
@@ -39,6 +61,10 @@ export default function ChannelList({ isLoading }: ChannelListProps) {
     setConfigChannelId(null)
     setConfigChannelName('')
     setConfigChannelIsActive(false)
+  }
+
+  const clearSearch = () => {
+    setSearchTerm('')
   }
 
   if (isLoading) {
@@ -61,8 +87,82 @@ export default function ChannelList({ isLoading }: ChannelListProps) {
 
   return (
     <>
+      {/* Search and Filter Bar */}
+      <div className="p-3 border-b border-gray-700 space-y-3">
+        {/* Search Input */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search channels..."
+            className="w-full bg-gray-700/50 text-white pl-10 pr-10 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {searchTerm && (
+            <button
+              onClick={clearSearch}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+            >
+              <X size={18} />
+            </button>
+          )}
+        </div>
+
+        {/* Type Filter Buttons */}
+        <div className="flex gap-2">
+          <button
+            onClick={() => setFilterType('all')}
+            className={clsx(
+              'flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              filterType === 'all'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700'
+            )}
+          >
+            All ({channels.length})
+          </button>
+          <button
+            onClick={() => setFilterType('channel')}
+            className={clsx(
+              'flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              filterType === 'channel'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700'
+            )}
+          >
+            Channels ({channels.filter(c => c.type === 'channel').length})
+          </button>
+          <button
+            onClick={() => setFilterType('group')}
+            className={clsx(
+              'flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              filterType === 'group'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700'
+            )}
+          >
+            Groups ({channels.filter(c => c.type === 'group').length})
+          </button>
+        </div>
+
+        {/* Results Count */}
+        {searchTerm && (
+          <p className="text-xs text-gray-400">
+            {filteredChannels.length} result{filteredChannels.length !== 1 ? 's' : ''}
+          </p>
+        )}
+      </div>
+
       <div className="flex-1 overflow-y-auto">
-        {channels.map((channel) => {
+        {filteredChannels.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center p-6">
+            <p className="text-gray-400 text-center text-sm">
+              No channels match your search.
+            </p>
+          </div>
+        ) : (
+          filteredChannels.map((channel) => {
           const isActive = activeChannels.includes(channel.id)
 
           return (
@@ -111,7 +211,8 @@ export default function ChannelList({ isLoading }: ChannelListProps) {
               </div>
             </div>
           )
-        })}
+        })
+        )}
       </div>
 
       {configChannelId && (
