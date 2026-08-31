@@ -123,6 +123,20 @@ input double   ClosePercentAtTP8 = 0;                   // Close % at TP8 (0=dis
 input double   ClosePercentAtTP9 = 0;                   // Close % at TP9 (0=disabled)
 input double   ClosePercentAtTP10 = 0;                  // Close % at TP10 (0=disabled)
 
+// Lot Weighting per TP
+input group "========== LOT WEIGHTING PER TP =========="
+input string   LotWeightInfo = "All zeros = equal split among enabled TPs"; // How it works
+input double   LotPercentTP1 = 0;                       // Lot % for TP1 order (0=equal split)
+input double   LotPercentTP2 = 0;                       // Lot % for TP2 order (0=equal split)
+input double   LotPercentTP3 = 0;                       // Lot % for TP3 order (0=equal split)
+input double   LotPercentTP4 = 0;                       // Lot % for TP4 order (0=equal split)
+input double   LotPercentTP5 = 0;                       // Lot % for TP5 order (0=equal split)
+input double   LotPercentTP6 = 0;                       // Lot % for TP6 order (0=equal split)
+input double   LotPercentTP7 = 0;                       // Lot % for TP7 order (0=equal split)
+input double   LotPercentTP8 = 0;                       // Lot % for TP8 order (0=equal split)
+input double   LotPercentTP9 = 0;                       // Lot % for TP9 order (0=equal split)
+input double   LotPercentTP10 = 0;                      // Lot % for TP10 order (0=equal split)
+
 // Trailing Stop Settings
 input group "========== TRAILING STOP SETTINGS =========="
 input bool     UseTrailingStop = false;                 // Use Trailing Stop
@@ -1116,22 +1130,39 @@ void ProcessSignal(string signalJson)
    double baseLotSize = CalculateLotSize(symbol, entryPrice, stopLoss, config);
    Print("💰 Base lot size from Risk Mode: ", baseLotSize);
 
-   // Prepare lot sizes for each TP using EnableTP1-10 switches
-   // All enabled TPs use the same lot size from Risk Mode
+   // Prepare lot sizes for each TP using EnableTP1-10 switches and optional lot weighting
    double lotSizes[10];
-   lotSizes[0] = EnableTP1 ? baseLotSize : 0;
-   lotSizes[1] = EnableTP2 ? baseLotSize : 0;
-   lotSizes[2] = EnableTP3 ? baseLotSize : 0;
-   lotSizes[3] = EnableTP4 ? baseLotSize : 0;
-   lotSizes[4] = EnableTP5 ? baseLotSize : 0;
-   lotSizes[5] = EnableTP6 ? baseLotSize : 0;
-   lotSizes[6] = EnableTP7 ? baseLotSize : 0;
-   lotSizes[7] = EnableTP8 ? baseLotSize : 0;
-   lotSizes[8] = EnableTP9 ? baseLotSize : 0;
-   lotSizes[9] = EnableTP10 ? baseLotSize : 0;
+   double lotWeights[10] = {LotPercentTP1, LotPercentTP2, LotPercentTP3, LotPercentTP4, LotPercentTP5,
+                             LotPercentTP6, LotPercentTP7, LotPercentTP8, LotPercentTP9, LotPercentTP10};
+   bool   tpEnabled[10]  = {EnableTP1, EnableTP2, EnableTP3, EnableTP4, EnableTP5,
+                             EnableTP6, EnableTP7, EnableTP8, EnableTP9, EnableTP10};
+
+   // Check whether any weight is non-zero (weighted mode)
+   double weightSum = 0;
+   for(int w = 0; w < 10; w++)
+      if(tpEnabled[w]) weightSum += lotWeights[w];
+
+   if(weightSum > 0)
+   {
+      // Weighted mode: allocate baseLotSize proportionally, then normalize
+      for(int w = 0; w < 10; w++)
+      {
+         if(!tpEnabled[w]) { lotSizes[w] = 0; continue; }
+         double rawLot = NormalizeDouble(baseLotSize * lotWeights[w] / weightSum, 2);
+         lotSizes[w] = (rawLot >= 0.01) ? rawLot : 0;
+      }
+      Print("📊 LOT WEIGHTING MODE: total base lot=", baseLotSize, " distributed by weight (sum=", weightSum, ")");
+   }
+   else
+   {
+      // Equal split: every enabled TP gets the full baseLotSize
+      for(int w = 0; w < 10; w++)
+         lotSizes[w] = tpEnabled[w] ? baseLotSize : 0;
+      Print("📊 EQUAL LOT MODE: each enabled TP gets ", baseLotSize, " lots");
+   }
 
    Print("📊 TP Selection: TP1=", (EnableTP1?"ON":"OFF"), " TP2=", (EnableTP2?"ON":"OFF"), " TP3=", (EnableTP3?"ON":"OFF"), " TP4=", (EnableTP4?"ON":"OFF"), " TP5=", (EnableTP5?"ON":"OFF"), " TP6=", (EnableTP6?"ON":"OFF"), " TP7=", (EnableTP7?"ON":"OFF"), " TP8=", (EnableTP8?"ON":"OFF"), " TP9=", (EnableTP9?"ON":"OFF"), " TP10=", (EnableTP10?"ON":"OFF"));
-   Print("📊 Lot size for all enabled TPs: ", baseLotSize);
+   Print("📊 Lot sizes: TP1=", lotSizes[0], " TP2=", lotSizes[1], " TP3=", lotSizes[2], " TP4=", lotSizes[3], " TP5=", lotSizes[4]);
 
    // Store all ticket numbers for this signal (initialize to 0!)
    ulong tickets[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};

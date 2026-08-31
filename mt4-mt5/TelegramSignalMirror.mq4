@@ -114,6 +114,20 @@ input double   ClosePercentAtTP8 = 0;                   // Close % at TP8 (0=dis
 input double   ClosePercentAtTP9 = 0;                   // Close % at TP9 (0=disabled)
 input double   ClosePercentAtTP10 = 0;                  // Close % at TP10 (0=disabled)
 
+// Lot Weighting per TP
+input group "========== LOT WEIGHTING PER TP =========="
+input string   LotWeightInfo = "All zeros = equal split among enabled TPs"; // How it works
+input double   LotPercentTP1 = 0;                       // Lot % for TP1 order (0=equal split)
+input double   LotPercentTP2 = 0;                       // Lot % for TP2 order (0=equal split)
+input double   LotPercentTP3 = 0;                       // Lot % for TP3 order (0=equal split)
+input double   LotPercentTP4 = 0;                       // Lot % for TP4 order (0=equal split)
+input double   LotPercentTP5 = 0;                       // Lot % for TP5 order (0=equal split)
+input double   LotPercentTP6 = 0;                       // Lot % for TP6 order (0=equal split)
+input double   LotPercentTP7 = 0;                       // Lot % for TP7 order (0=equal split)
+input double   LotPercentTP8 = 0;                       // Lot % for TP8 order (0=equal split)
+input double   LotPercentTP9 = 0;                       // Lot % for TP9 order (0=equal split)
+input double   LotPercentTP10 = 0;                      // Lot % for TP10 order (0=equal split)
+
 // Trailing Stop Settings
 input group "========== TRAILING STOP SETTINGS =========="
 input bool     UseTrailingStop = false;                 // Use Trailing Stop
@@ -1054,18 +1068,45 @@ void ProcessSignal(string signalJson)
    Print("Order Type: ", orderType == "" ? "MARKET" : orderType);
    Print("Base Direction: ", baseDirection);
 
-   // Prepare lot sizes for each TP using RiskTP1-10
+   // Prepare lot sizes for each TP
+   // If any LotPercentTP is set: distribute baseLotSize by weight across enabled TPs
+   // Otherwise fall back to the individual RiskTP1-10 values
+   double lotWeights[10];
+   lotWeights[0] = LotPercentTP1; lotWeights[1] = LotPercentTP2; lotWeights[2] = LotPercentTP3;
+   lotWeights[3] = LotPercentTP4; lotWeights[4] = LotPercentTP5; lotWeights[5] = LotPercentTP6;
+   lotWeights[6] = LotPercentTP7; lotWeights[7] = LotPercentTP8; lotWeights[8] = LotPercentTP9;
+   lotWeights[9] = LotPercentTP10;
+   double riskLots[10];
+   riskLots[0] = RiskTP1; riskLots[1] = RiskTP2; riskLots[2] = RiskTP3;
+   riskLots[3] = RiskTP4; riskLots[4] = RiskTP5; riskLots[5] = RiskTP6;
+   riskLots[6] = RiskTP7; riskLots[7] = RiskTP8; riskLots[8] = RiskTP9;
+   riskLots[9] = RiskTP10;
    double lotSizes[10];
-   lotSizes[0] = RiskTP1;
-   lotSizes[1] = RiskTP2;
-   lotSizes[2] = RiskTP3;
-   lotSizes[3] = RiskTP4;
-   lotSizes[4] = RiskTP5;
-   lotSizes[5] = RiskTP6;
-   lotSizes[6] = RiskTP7;
-   lotSizes[7] = RiskTP8;
-   lotSizes[8] = RiskTP9;
-   lotSizes[9] = RiskTP10;
+   for(int w = 0; w < 10; w++) lotSizes[w] = 0;
+
+   double weightSum = 0;
+   for(int w = 0; w < 10; w++)
+      if(takeProfits[w] != 0 || w == 0) weightSum += lotWeights[w];
+
+   if(weightSum > 0)
+   {
+      // Weighted mode: use FixedLotSize as the total, split by LotPercentTP weights
+      double baseLot = FixedLotSize;
+      for(int w = 0; w < 10; w++)
+      {
+         if(takeProfits[w] == 0 && w > 0) { lotSizes[w] = 0; continue; }
+         double rawLot = NormalizeDouble(baseLot * lotWeights[w] / weightSum, 2);
+         lotSizes[w] = (rawLot >= 0.01) ? rawLot : 0;
+      }
+      Print("📊 LOT WEIGHTING MODE: total base lot=", baseLot, " distributed by weight (sum=", weightSum, ")");
+   }
+   else
+   {
+      // Use individual RiskTP1-10 values directly
+      for(int w = 0; w < 10; w++)
+         lotSizes[w] = riskLots[w];
+      Print("📊 RISKTP MODE: using individual RiskTP lot values");
+   }
 
    // Count how many TPs we have
    int tpCount = 0;
@@ -1075,6 +1116,7 @@ void ProcessSignal(string signalJson)
    }
 
    Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
+   Print("📊 Lot sizes: TP1=", lotSizes[0], " TP2=", lotSizes[1], " TP3=", lotSizes[2], " TP4=", lotSizes[3], " TP5=", lotSizes[4]);
 
    // Store all ticket numbers for this signal (initialize to 0!)
    int tickets[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
