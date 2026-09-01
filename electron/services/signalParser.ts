@@ -76,30 +76,68 @@ export class SignalParser {
       return hashtagMatch[1]
     }
 
-    // Common forex pairs
-    const forexPairs = [
-      'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
-      'EURJPY', 'GBPJPY', 'EURGBP', 'AUDJPY', 'EURAUD', 'EURCHF', 'AUDNZD',
-      'GBPAUD', 'GBPCAD', 'GBPCHF', 'CADCHF', 'CADJPY', 'AUDCAD', 'NZDJPY',
+    // Forex pairs - Major pairs (7)
+    const forexMajors = [
+      'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD'
     ]
 
-    // Gold and metals
-    const metals = ['XAUUSD', 'XAGUSD', 'GOLD', 'SILVER']
+    // Forex pairs - Minor pairs (21)
+    const forexMinors = [
+      'AUDCAD', 'AUDCHF', 'AUDJPY', 'AUDNZD', 'CADCHF', 'CADJPY', 'CHFJPY',
+      'EURAUD', 'EURCAD', 'EURCHF', 'EURGBP', 'EURJPY', 'EURNZD',
+      'GBPAUD', 'GBPCAD', 'GBPCHF', 'GBPJPY', 'GBPNZD',
+      'NZDCAD', 'NZDCHF', 'NZDJPY'
+    ]
 
-    // Indices
+    // Forex pairs - Exotic pairs (33)
+    const forexExotics = [
+      'AUDSGD', 'CHFSGD', 'EURDKK', 'EURHKD', 'EURNOK', 'EURPLN', 'EURSEK', 'EURSGD', 'EURTRY', 'EURZAR',
+      'GBPDKK', 'GBPNOK', 'GBPSEK', 'GBPSGD', 'GBPTRY',
+      'NOKJPY', 'NOKSEK', 'SEKJPY', 'SGDJPY',
+      'USDCNH', 'USDCZK', 'USDDKK', 'USDHKD', 'USDHUF', 'USDMXN', 'USDNOK', 'USDPLN', 'USDRUB', 'USDSEK', 'USDSGD', 'USDTHB', 'USDTRY', 'USDZAR'
+    ]
+
+    // Precious Metals (11)
+    const metals = [
+      'XAUUSD', 'XAUEUR', 'XAUAUD', 'XAUJPY', 'XAUGBP', 'XAUCHF',
+      'XAGUSD', 'XAGEUR', 'XAGAUD',
+      'XPTUSD', 'XPDUSD',
+      'GOLD', 'SILVER'  // Alternative names
+    ]
+
+    // Spot Energies (3)
+    const energies = ['XTIUSD', 'XBRUSD', 'XNGUSD']
+
+    // Soft Commodities / Agriculture Futures (8)
+    const softCommodities = ['COCOA', 'COFFEE', 'CORN', 'COTTON', 'OJ', 'SOYBEAN', 'SUGAR', 'WHEAT']
+
+    // Indices (23)
     const indices = [
-      'US30', 'NAS100', 'SPX500', 'GER30', 'UK100', 'JPN225', 'AUS200',
-      'US100', 'USTEC', 'SPX', 'DOW', 'NASDAQ'
+      'AUS200', 'DE40', 'F40', 'JP225', 'STOXX50', 'UK100', 'US30', 'US500', 'USTEC',
+      'CA60', 'CHINA50', 'CHINAH', 'ES35', 'HK50', 'IT40', 'MIDDE50', 'NETH25', 'NOR25',
+      'SA40', 'SE30', 'SWI20', 'TECDE30', 'US2000',
+      // Alternative names
+      'GER30', 'NAS100', 'SPX500', 'US100', 'SPX', 'DOW', 'NASDAQ'
     ]
 
-    // Crypto - expanded list
+    // Bonds (9)
+    const bonds = [
+      'EURBOBL', 'EURBUND', 'EURSCHATZ', 'ITBTP10Y', 'JGB10Y', 'UKGB', 'UST05Y', 'UST10Y', 'UST30Y'
+    ]
+
+    // Cryptocurrency (30+)
     const crypto = [
-      'BTCUSD', 'ETHUSD', 'BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'BNBUSDT',
-      'POL', 'POLUSDT', 'MATIC', 'MATICUSDT', 'ADAUSDT', 'SOLUSDT',
-      'DOGEUSDT', 'DOTUSDT', 'AVAXUSDT', 'LINKUSDT', 'UNIUSDT'
+      'BTCUSD', 'ETHUSD', 'LTCUSD', 'BCHUSD', 'XRPUSD', 'DSHUSD', 'DOTUSD', 'XLMUSD', 'LNKUSD', 'DOGUSD',
+      'XTZUSD', 'UNIUSD', 'ADAUSD', 'BNBUSD', 'EMCUSD', 'NMCUSD', 'PPCUSD', 'AVAXUSD', 'LUNAUSD', 'MATICUSD', 'GLMRUSD', 'KSMUSD',
+      // USDT pairs
+      'BTCUSDT', 'ETHUSDT', 'XRPUSDT', 'BNBUSDT', 'ADAUSDT', 'SOLUSDT', 'DOGEUSDT', 'DOTUSDT', 'AVAXUSDT', 'LINKUSDT', 'UNIUSDT',
+      'POL', 'POLUSDT', 'MATIC', 'MATICUSDT'
     ]
 
-    const allSymbols = [...forexPairs, ...metals, ...indices, ...crypto]
+    // Futures (5)
+    const futures = ['DXYIC', 'VIX', 'BRENT', 'WTI', 'GC']
+
+    const allSymbols = [...forexMajors, ...forexMinors, ...forexExotics, ...metals, ...energies, ...softCommodities, ...indices, ...bonds, ...crypto, ...futures]
 
     // Look for exact matches
     for (const symbol of allSymbols) {
@@ -139,47 +177,62 @@ export class SignalParser {
   private extractEntryPrice(text: string, symbol: string): number | number[] | undefined {
     const prices: number[] = []
 
-    // 1. Check for range pattern first (4329-4332) - takes first number
-    const rangePattern = /([0-9]+\.?[0-9]*)\s*-\s*([0-9]+\.?[0-9]*)/
-    const rangeMatch = rangePattern.exec(text)
-    if (rangeMatch) {
-      const price = parseFloat(rangeMatch[1])
-      if (!isNaN(price) && price > 0) {
-        return price  // Return first number from range
+    // 1. Keyword-prefixed entry wins over everything (ENTRY: 4028/32, ENTRY: 4028-4032, ENTRY: 1.2345)
+    //    Check slash and dash ranges immediately after the keyword before falling to bare number.
+    const keywordRangePatterns = [
+      /ENTRY[:\s@]+([0-9]+\.?[0-9]*)[\/-]([0-9]+\.?[0-9]*)/gi,
+      /ENTER[:\s@]+([0-9]+\.?[0-9]*)[\/-]([0-9]+\.?[0-9]*)/gi,
+    ]
+    for (const pattern of keywordRangePatterns) {
+      const match = pattern.exec(text)
+      if (match) {
+        const price = parseFloat(match[1])
+        if (!isNaN(price) && price > 0) return price
       }
     }
 
-    // 2. Check for symbol-based pattern (XAUUSD 4329, EURUSD 1.2345)
-    const symbolPattern = new RegExp(symbol + '\\s+([0-9]+\\.?[0-9]*)', 'i')
-    const symbolMatch = symbolPattern.exec(text)
-    if (symbolMatch) {
-      const price = parseFloat(symbolMatch[1])
-      if (!isNaN(price) && price > 0) {
-        prices.push(price)
-      }
-    }
-
-    // 3. Check for keyword-based patterns (ENTRY:, @, PRICE:)
     const keywordPatterns = [
       /ENTRY[:\s@]+([0-9]+\.?[0-9]*)/gi,
       /ENTER[:\s@]+([0-9]+\.?[0-9]*)/gi,
       /@\s*([0-9]+\.?[0-9]*)/g,
       /PRICE[:\s]+([0-9]+\.?[0-9]*)/gi,
     ]
-
     for (const pattern of keywordPatterns) {
       const matches = text.matchAll(pattern)
       for (const match of matches) {
         const price = parseFloat(match[1])
-        if (!isNaN(price) && price > 0) {
-          prices.push(price)
-        }
+        if (!isNaN(price) && price > 0) prices.push(price)
       }
     }
+    if (prices.length > 0) {
+      return prices.length === 1 ? prices[0] : prices
+    }
 
-    if (prices.length === 0) return undefined
-    if (prices.length === 1) return prices[0]
-    return prices
+    // 2. Symbol-based pattern (XAUUSD 4329, EURUSD 1.2345)
+    const symbolPattern = new RegExp(symbol + '\\s+([0-9]+\\.?[0-9]*)', 'i')
+    const symbolMatch = symbolPattern.exec(text)
+    if (symbolMatch) {
+      const price = parseFloat(symbolMatch[1])
+      if (!isNaN(price) && price > 0) return price
+    }
+
+    // 3. Slash range pattern (4011/21 or 4011/4021) — only if no keyword found
+    const abbreviatedRangePattern = /([0-9]+\.?[0-9]*)\/([0-9]+\.?[0-9]*)/
+    const abbreviatedMatch = abbreviatedRangePattern.exec(text)
+    if (abbreviatedMatch) {
+      const price = parseFloat(abbreviatedMatch[1])
+      if (!isNaN(price) && price > 0) return price
+    }
+
+    // 4. Dash range pattern (4329-4332) — only if no keyword found
+    const rangePattern = /([0-9]+\.?[0-9]*)\s*-\s*([0-9]+\.?[0-9]*)/
+    const rangeMatch = rangePattern.exec(text)
+    if (rangeMatch) {
+      const price = parseFloat(rangeMatch[1])
+      if (!isNaN(price) && price > 0) return price
+    }
+
+    return undefined
   }
 
   private extractStopLoss(text: string): number | undefined {

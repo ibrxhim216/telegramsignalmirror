@@ -288,7 +288,59 @@ export class EnhancedSignalParser {
     const keywords = config.signalKeywords.entryPoint
     const prices: number[] = []
 
-    // 1. Check for range pattern first (4329-4332) - apply entryRangeStrategy
+    // 1. Check configured entry keywords FIRST (e.g. "ENTRY: 4028/32" or "ENTRY: 4028-4032")
+    //    This must run before range patterns so a TP range like "4085-4100" can't steal the entry.
+    for (const keyword of keywords) {
+      const keywordUpper = keyword.toUpperCase()
+      // Match keyword followed by a slash or dash range (e.g. "ENTRY: 4028/32" or "ENTRY: 4028-4032")
+      const rangePattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+[\\(\\[\\s]*([0-9]+\\.?[0-9]*)[\\s]*[/\\-][\\s]*([0-9]+\\.?[0-9]*)`, 'gi')
+      for (const match of text.matchAll(rangePattern)) {
+        const first = parseFloat(match[1])
+        const secondRaw = match[2]
+        if (isNaN(first) || first <= 0) continue
+
+        // Reconstruct second price for abbreviated ranges like 4028/32 → 4032
+        const firstStr = match[1].replace('.', '')
+        const secondStr = secondRaw.replace('.', '')
+        let second: number
+        if (secondStr.length < firstStr.length) {
+          const reconstructed = firstStr.slice(0, firstStr.length - secondStr.length) + secondStr
+          const dotPos = match[1].indexOf('.')
+          second = dotPos >= 0
+            ? parseFloat(reconstructed.slice(0, dotPos) + '.' + reconstructed.slice(dotPos))
+            : parseFloat(reconstructed)
+        } else {
+          second = parseFloat(secondRaw)
+        }
+
+        const strategy = config.advancedSettings.entryRangeStrategy
+        let price: number
+        if (strategy === 'last') price = second
+        else if (strategy === 'middle') price = (first + second) / 2
+        else price = first
+
+        logger.debug(`Extracted entry price from keyword range (${strategy}): ${price} (from ${first}-${second})`)
+        return price
+      }
+      // Match keyword followed by single number
+      const singlePattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+[\\(\\[\\s]*([0-9]+\\.?[0-9]*)[\\)\\]\\s]*`, 'gi')
+      for (const match of text.matchAll(singlePattern)) {
+        const price = parseFloat(match[1])
+        if (!isNaN(price) && price > 0 && !prices.includes(price)) {
+          prices.push(price)
+        }
+      }
+    }
+
+    if (prices.length > 0) {
+      if (prices.length === 1) return prices[0]
+      const strategy = config.advancedSettings.entryRangeStrategy
+      if (strategy === 'last') return prices[prices.length - 1]
+      if (strategy === 'middle') return prices.reduce((a, b) => a + b, 0) / prices.length
+      return prices[0]
+    }
+
+    // 2. Check for range pattern (4329-4332) — only if no keyword matched above
     const rangePattern = /([0-9]+\.?[0-9]*)\s*-\s*([0-9]+\.?[0-9]*)/
     const rangeMatch = rangePattern.exec(text)
     if (rangeMatch) {
@@ -321,7 +373,7 @@ export class EnhancedSignalParser {
       }
     }
 
-    // 2. Check for symbol-based pattern (XAUUSD 4329, EURUSD 1.2345)
+    // 3. Check for symbol-based pattern (XAUUSD 4329, EURUSD 1.2345)
     const symbol = this.extractSymbol(text)
     if (symbol) {
       const symbolPattern = new RegExp(symbol + '\\s+([0-9]+\\.?[0-9]*)', 'i')
@@ -356,21 +408,6 @@ export class EnhancedSignalParser {
         if (!isNaN(price) && price > 0) {
           prices.push(price)
           logger.debug(`Extracted entry price from simple format: ${price}`)
-        }
-      }
-    }
-
-    // Check configured entry keywords
-    for (const keyword of keywords) {
-      const keywordUpper = keyword.toUpperCase()
-      // Support optional parentheses/brackets around numbers: ( 4447 ) or [ 4447 ]
-      const pattern = new RegExp(`${keywordUpper}[:\\s@\\-_*\`]+[\\(\\[\\s]*([0-9]+\\.?[0-9]*)[\\)\\]\\s]*`, 'gi')
-      const matches = text.matchAll(pattern)
-
-      for (const match of matches) {
-        const price = parseFloat(match[1])
-        if (!isNaN(price) && price > 0 && !prices.includes(price)) {
-          prices.push(price)
         }
       }
     }

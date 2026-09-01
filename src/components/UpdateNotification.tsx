@@ -15,25 +15,18 @@ export default function UpdateNotification() {
   const [showDialog, setShowDialog] = useState(false)
 
   useEffect(() => {
-    // Listen for update notifications from main process
-    const handleUpdateAvailable = (_event: any, info: UpdateInfo) => {
+    const handleUpdateAvailable = (info: UpdateInfo) => {
       setUpdateInfo(info)
       setShowBanner(true)
     }
 
-    // @ts-ignore - window.electron is added by preload
-    window.electron?.on('update-available', handleUpdateAvailable)
-
-    return () => {
-      // @ts-ignore
-      window.electron?.off('update-available', handleUpdateAvailable)
-    }
+    const cleanup = window.electron?.update?.onUpdateAvailable(handleUpdateAvailable)
+    return () => { cleanup?.() }
   }, [])
 
   const handleDownload = () => {
     if (updateInfo) {
-      // @ts-ignore
-      window.electron?.downloadUpdate(updateInfo.downloadUrl)
+      window.electron?.update?.download(updateInfo.downloadUrl)
       setShowBanner(false)
       setShowDialog(false)
     }
