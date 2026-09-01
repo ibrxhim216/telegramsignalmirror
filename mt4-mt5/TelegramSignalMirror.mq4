@@ -1069,7 +1069,7 @@ void ProcessSignal(string signalJson)
    Print("Base Direction: ", baseDirection);
 
    // Prepare lot sizes for each TP
-   // If any LotPercentTP is set: distribute baseLotSize by weight across enabled TPs
+   // If any LotPercentTP is set: distribute baseLot by weight across enabled TPs
    // Otherwise fall back to the individual RiskTP1-10 values
    double lotWeights[10];
    lotWeights[0] = LotPercentTP1; lotWeights[1] = LotPercentTP2; lotWeights[2] = LotPercentTP3;
@@ -1084,17 +1084,17 @@ void ProcessSignal(string signalJson)
    double lotSizes[10];
    for(int w = 0; w < 10; w++) lotSizes[w] = 0;
 
+   double baseLot = FixedLotSize;
    double weightSum = 0;
    for(int w = 0; w < 10; w++)
-      if(takeProfits[w] != 0 || w == 0) weightSum += lotWeights[w];
+      if(takeProfits[w] != 0) weightSum += lotWeights[w];
 
    if(weightSum > 0)
    {
       // Weighted mode: use FixedLotSize as the total, split by LotPercentTP weights
-      double baseLot = FixedLotSize;
       for(int w = 0; w < 10; w++)
       {
-         if(takeProfits[w] == 0 && w > 0) { lotSizes[w] = 0; continue; }
+         if(takeProfits[w] == 0) { lotSizes[w] = 0; continue; }
          double rawLot = NormalizeDouble(baseLot * lotWeights[w] / weightSum, 2);
          lotSizes[w] = (rawLot >= 0.01) ? rawLot : 0;
       }
@@ -1112,7 +1112,7 @@ void ProcessSignal(string signalJson)
    int tpCount = 0;
    for(int i = 0; i < 10; i++)
    {
-      if(takeProfits[i] != 0 || (i == 0 && takeProfits[0] == 0 && lotSizes[0] > 0)) tpCount++;
+      if(takeProfits[i] != 0 && lotSizes[i] > 0) tpCount++;
    }
 
    Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
@@ -1122,11 +1122,44 @@ void ProcessSignal(string signalJson)
    int tickets[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    int successCount = 0;
 
+   // NO-TP FALLBACK: signal has no take profits — open one order with full lot and no TP
+   if(tpCount == 0)
+   {
+      Print("📊 No TPs in signal — opening single order with no TP");
+      int ticket = 0;
+      int retries = 0;
+      while(ticket == 0 && retries < config.maxRetries)
+      {
+         if(baseDirection == "BUY")
+         {
+            if(orderType == "STOP")
+               ticket = ExecuteBuyStop(symbol, entryPrice, baseLot, stopLoss, 0, config.customComment, config.slippage);
+            else if(orderType == "LIMIT")
+               ticket = ExecuteBuyLimit(symbol, entryPrice, baseLot, stopLoss, 0, config.customComment, config.slippage);
+            else
+               ticket = ExecuteBuy(symbol, baseLot, stopLoss, 0, config.customComment, config.slippage);
+         }
+         else if(baseDirection == "SELL")
+         {
+            if(orderType == "STOP")
+               ticket = ExecuteSellStop(symbol, entryPrice, baseLot, stopLoss, 0, config.customComment, config.slippage);
+            else if(orderType == "LIMIT")
+               ticket = ExecuteSellLimit(symbol, entryPrice, baseLot, stopLoss, 0, config.customComment, config.slippage);
+            else
+               ticket = ExecuteSell(symbol, baseLot, stopLoss, 0, config.customComment, config.slippage);
+         }
+         retries++;
+         if(ticket == 0 && retries < config.maxRetries) { Print("⚠️  Order failed, retrying... (", retries, "/", config.maxRetries, ")"); Sleep(1000); }
+      }
+      if(ticket > 0) { tickets[0] = ticket; successCount++; Print("✅ No-TP order created: Ticket ", ticket); }
+      else Print("❌ Failed to create no-TP order after ", retries, " retries");
+   }
+   else
    // Create separate orders for each TP level
    for(int tpIdx = 0; tpIdx < 10; tpIdx++)
    {
-      // Skip if no TP at this level (but allow TP=0 for first TP only, meaning "Open")
-      if(takeProfits[tpIdx] == 0 && tpIdx > 0) continue;
+      // Skip if no TP at this level
+      if(takeProfits[tpIdx] == 0) continue;
 
       // Skip if lot size is 0 or negative (means ignore this TP)
       if(lotSizes[tpIdx] <= 0) continue;

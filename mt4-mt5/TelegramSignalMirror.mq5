@@ -1277,6 +1277,39 @@ void ProcessSignal(string signalJson)
 
       Print("📊 Creating ", tpCount, " separate orders (one per TP level)");
 
+      // NO-TP FALLBACK: signal has no take profits — open one order with full lot and no TP
+      if(tpCount == 0)
+      {
+         Print("📊 No TPs in signal — opening single order with no TP");
+         ulong ticket = 0;
+         int retries = 0;
+         while(ticket == 0 && retries < config.maxRetries)
+         {
+            if(baseDirection == "BUY")
+            {
+               if(orderType == "STOP")
+                  ticket = ExecuteBuyStop(symbol, entryPrice, baseLotSize, stopLoss, 0, config.customComment);
+               else if(orderType == "LIMIT")
+                  ticket = ExecuteBuyLimit(symbol, entryPrice, baseLotSize, stopLoss, 0, config.customComment);
+               else
+                  ticket = ExecuteBuy(symbol, baseLotSize, stopLoss, 0, config.customComment);
+            }
+            else if(baseDirection == "SELL")
+            {
+               if(orderType == "STOP")
+                  ticket = ExecuteSellStop(symbol, entryPrice, baseLotSize, stopLoss, 0, config.customComment);
+               else if(orderType == "LIMIT")
+                  ticket = ExecuteSellLimit(symbol, entryPrice, baseLotSize, stopLoss, 0, config.customComment);
+               else
+                  ticket = ExecuteSell(symbol, baseLotSize, stopLoss, 0, config.customComment);
+            }
+            retries++;
+            if(ticket == 0 && retries < config.maxRetries) { Print("⚠️  Order failed, retrying... (", retries, "/", config.maxRetries, ")"); Sleep(1000); }
+         }
+         if(ticket > 0) { tickets[0] = ticket; successCount++; Print("✅ No-TP order created: Ticket ", ticket); }
+         else Print("❌ Failed to create no-TP order after ", retries, " retries");
+      }
+      else
       // Create separate orders for each TP level
       for(int tpIdx = 0; tpIdx < 10; tpIdx++)
    {
