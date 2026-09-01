@@ -1972,13 +1972,21 @@ void MonitorActiveTrades()
          {
             if(activeTrades[j].signalGroupId == activeTrades[i].signalGroupId)
             {
-               // Check if this order in the group no longer exists (was closed by TP)
-               // Use HistorySelectByPosition to check if it's in history (closed)
+               // Check if this order closed specifically by TP (not pending→position transition)
                if(HistorySelectByPosition(activeTrades[j].ticket))
                {
-                  // Order is in history = it's closed
-                  anyTPHitInGroup = true;
-                  break;
+                  int totalDeals = HistoryDealsTotal();
+                  for(int d = totalDeals - 1; d >= 0; d--)
+                  {
+                     ulong dealTicket = HistoryDealGetTicket(d);
+                     if(HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID) == (long)activeTrades[j].ticket)
+                     {
+                        if(HistoryDealGetInteger(dealTicket, DEAL_REASON) == DEAL_REASON_TP)
+                           anyTPHitInGroup = true;
+                        break;
+                     }
+                  }
+                  if(anyTPHitInGroup) break;
                }
             }
          }

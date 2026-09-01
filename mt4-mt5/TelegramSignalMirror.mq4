@@ -1816,13 +1816,18 @@ void MonitorActiveTrades()
          {
             if(activeTrades[j].signalGroupId == activeTrades[i].signalGroupId)
             {
-               // Check if this order in the group no longer exists (was closed by TP)
-               // Use SELECT_BY_TICKET with MODE_HISTORY to check if it's in history (closed)
+               // Check if this order closed specifically by TP (not pending→position transition)
+               // OrderType() == OP_BUY/OP_SELL in history means it was a market order that closed
+               // AND close price matches TP means it hit TP (not SL or manual close)
                if(OrderSelect(activeTrades[j].ticket, SELECT_BY_TICKET, MODE_HISTORY))
                {
-                  // Order is in history = it's closed
-                  anyTPHitInGroup = true;
-                  break;
+                  int ot = OrderType();
+                  if((ot == OP_BUY || ot == OP_SELL) && OrderTakeProfit() > 0 &&
+                     MathAbs(OrderClosePrice() - OrderTakeProfit()) < 0.1)
+                  {
+                     anyTPHitInGroup = true;
+                     break;
+                  }
                }
             }
          }
