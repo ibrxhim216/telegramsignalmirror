@@ -1,5 +1,5 @@
 import { config as dotenvConfig } from 'dotenv'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
@@ -23,6 +23,12 @@ if (!isDevelopment) {
 } else {
   const result = dotenvConfig()
   console.log('[ENV] Dev mode - dotenv result:', result.error ? result.error.message : 'SUCCESS')
+  // Dev always runs as the ADVANCED build: layer .env.advanced (keys + ADVANCED_FEATURES) on top.
+  // Packaged builds get whichever env file the build script bundled — see build-advanced.js.
+  if (fs.existsSync(path.join(process.cwd(), '.env.advanced'))) {
+    dotenvConfig({ path: path.join(process.cwd(), '.env.advanced'), override: true })
+    console.log('[ENV] Dev mode - .env.advanced layered on top (ADVANCED_FEATURES=', process.env.ADVANCED_FEATURES, ')')
+  }
 }
 import { initDatabase } from './database'
 import { TelegramService } from './services/telegram'
@@ -35,12 +41,13 @@ import { tradeModificationHandler } from './services/tradeModificationHandler'
 import { signalModificationService } from './services/signalModificationService'
 import { tscProtector } from './services/tscProtector'
 import { multiTPHandler } from './services/multiTPHandler'
-import { licenseService } from './services/licenseService'
+import { licenseService, getWebBaseUrl } from './services/licenseService'
 import { visionAI } from './services/visionAI'
 import { accountService } from './services/accountService'
 import { keywordDetector } from './services/keywordDetector'
 import { UpdateService } from './services/updateService'
 import { logger } from './utils/logger'
+import { getDatabase, saveDatabase } from './database'
 
 let mainWindow: BrowserWindow | null = null
 let telegramService: TelegramService | null = null
@@ -66,6 +73,9 @@ function startTradeSyncIfConfigured() {
     // Set configuration
     cloudSync.setAuthToken(authToken)
 
+    // Sync trading accounts from cloud so accountService.getPrimaryAccount() works
+    cloudSync.syncAccountsFromCloud().catch(err => logger.error('Account sync failed:', err))
+
     // Start sync - signals will be distributed to all user's accounts
     cloudSync.startTradeSync(30000)
     logger.info('[Cloud Sync] Trade synchronization (re)started')
@@ -74,6 +84,169 @@ function startTradeSyncIfConfigured() {
     cloudSync.stopTradeSync()
     logger.info('[Cloud Sync] Trade synchronization stopped - missing auth token')
   }
+}
+
+// ─── Settings helpers (small key/value table) ───────────────────────────────────
+function getSetting(key: string): string | null {
+  try {
+    const rows = getDatabase().exec('SELECT value FROM settings WHERE key = ?', [key])
+    if (rows.length > 0 && rows[0].values.length > 0) return String(rows[0].values[0][0])
+  } catch (e: any) {
+    logger.warn(`getSetting(${key}) failed: ${e.message}`)
+  }
+  return null
+}
+
+function setSetting(key: string, value: string) {
+  try {
+    getDatabase().run(
+      'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+      [key, value]
+    )
+    saveDatabase()
+  } catch (e: any) {
+    logger.warn(`setSetting(${key}) failed: ${e.message}`)
+  }
+}
+
+const SETTING_MONITORED_CHANNELS = 'monitored_channels'
+const SETTING_MONITORING_ENABLED = 'monitoring_enabled'
+
+function rememberMonitoring(channelIds: number[], enabled: boolean) {
+  setSetting(SETTING_MONITORED_CHANNELS, JSON.stringify(channelIds))
+  setSetting(SETTING_MONITORING_ENABLED, enabled ? '1' : '0')
+}
+
+function getMonitoringState() {
+  const channelIds = telegramService?.getMonitoringChannels() || []
+  let remembered: number[] = []
+  try { remembered = JSON.parse(getSetting(SETTING_MONITORED_CHANNELS) || '[]') } catch { remembered = [] }
+  return {
+    isMonitoring: channelIds.length > 0,
+    channelIds: channelIds.length > 0 ? channelIds : remembered,
+    resumeOnStart: getSetting(SETTING_MONITORING_ENABLED) === '1',
+  }
+}
+
+function broadcastMonitoringState() {
+  mainWindow?.webContents.send('telegram:monitoringState', getMonitoringState())
+}
+
+/**
+ * Resume monitoring the channels the user had selected before the app was last closed.
+ * Called once Telegram reconnects on startup, so a VPS reboot does not stop signal copying.
+ */
+async function resumeMonitoringIfEnabled() {
+  if (!telegramService) return
+  const state = getMonitoringState()
+  if (!state.resumeOnStart || state.channelIds.length === 0) return
+  if (telegramService.getMonitoringChannels().length > 0) return // already monitoring
+  try {
+    await telegramService.startMonitoring(state.channelIds)
+    licenseService.setChannelCount(state.channelIds.length)
+    logger.info(`▶️  Resumed monitoring ${state.channelIds.length} channel(s) from last session`)
+  } catch (e: any) {
+    logger.error(`Failed to resume monitoring: ${e.message}`)
+  }
+  broadcastMonitoringState()
+}
+
+/**
+ * Reconnect to Telegram automatically when a session was saved on a previous run.
+ * Session restore needs no code, so the user lands straight on the dashboard.
+ */
+const SETTING_TELEGRAM_AUTOCONNECT = 'telegram_autoconnect'
+
+function autoConnectTelegramIfPossible() {
+  if (!telegramService) return
+  if (telegramService.isConnected() || telegramService.isConnecting()) return
+  // Only for signed-in users, and not after an explicit "Disconnect Telegram"
+  if (!licenseService.isLoggedIn()) return
+  if (getSetting(SETTING_TELEGRAM_AUTOCONNECT) === '0') return
+  const phone = telegramService.getSavedPhone()
+  if (!phone) {
+    logger.info('No saved Telegram session - waiting for the user to sign in')
+    return
+  }
+  logger.info(`Restoring Telegram session for ${phone.replace(/\d(?=\d{3})/g, '*')}`)
+  telegramService.connect(phone).catch(err => logger.error('Telegram auto-connect failed:', err))
+}
+
+// ─── Deep links (tsm://login?token=...) and single-instance handling ────────────
+const PROTOCOL = 'tsm'
+let pendingDeepLink: string | null = null
+let servicesReady = false
+
+function extractDeepLink(argv: string[]): string | null {
+  return argv.find(a => typeof a === 'string' && a.toLowerCase().startsWith(`${PROTOCOL}://`)) || null
+}
+
+async function handleDeepLink(rawUrl: string) {
+  if (!servicesReady) {
+    pendingDeepLink = rawUrl
+    return
+  }
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    logger.warn(`Ignoring malformed deep link: ${rawUrl}`)
+    return
+  }
+  // tsm://login?token=... → host is "login"
+  const action = (url.hostname || url.pathname.replace(/^\/+/, '')).toLowerCase()
+  if (action === 'login') {
+    const token = url.searchParams.get('token')
+    if (!token) return
+    logger.info('Deep link: signing in with a token from the website')
+    const result = await licenseService.loginWithHandoffToken(token)
+    if (result.success) {
+      startTradeSyncIfConfigured()
+      mainWindow?.webContents.send('auth:loggedIn')
+      autoConnectTelegramIfPossible()
+    } else {
+      mainWindow?.webContents.send('auth:loginFailed', result.error || 'Sign-in link rejected')
+    }
+    focusMainWindow()
+    return
+  }
+  logger.info(`Deep link action not recognised: ${action}`)
+}
+
+function focusMainWindow() {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+// Only one copy of the app may run: a second launch (for example from a tsm:// link) hands its
+// arguments to the running instance and exits.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const link = extractDeepLink(argv)
+    if (link) handleDeepLink(link)
+    focusMainWindow()
+  })
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    handleDeepLink(url)
+  })
+  // Register tsm:// so the website's "Open desktop app" button can reach us
+  try {
+    if (process.defaultApp && process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])])
+    } else {
+      app.setAsDefaultProtocolClient(PROTOCOL)
+    }
+  } catch (e: any) {
+    logger.warn(`Could not register ${PROTOCOL}:// protocol: ${e.message}`)
+  }
+  const initialLink = extractDeepLink(process.argv)
+  if (initialLink) pendingDeepLink = initialLink
 }
 
 function createWindow() {
@@ -141,6 +314,11 @@ app.whenReady().then(async () => {
   // Configure API server with cloud sync
   apiServer.setCloudSyncService(cloudSync)
 
+  cloudSync.on('accountError', (errorData) => {
+    logger.warn(`[Cloud Sync] Account ${errorData.accountNumber}: ${errorData.message}`)
+    mainWindow?.webContents.send('cloudSync:accountError', errorData)
+  })
+
   // Start API server for MT4/MT5 EA communication
   await apiServer.start()
 
@@ -151,10 +329,22 @@ app.whenReady().then(async () => {
 
   telegramService.on('connected', () => {
     mainWindow?.webContents.send('telegram:connected')
+    // Pick up where the user left off (survives app restarts and VPS reboots)
+    resumeMonitoringIfEnabled()
+  })
+
+  // Two-step verification: forward the prompt so the UI can ask for the Telegram cloud password
+  telegramService.on('passwordRequired', () => {
+    mainWindow?.webContents.send('telegram:passwordRequired')
   })
 
   telegramService.on('signalReceived', async (signal) => {
     mainWindow?.webContents.send('signal:received', signal)
+
+    // Skipped messages are informational only — shown in the feed, never executed or broadcast
+    if (signal.signalType === 'skipped' || !signal.parsed) {
+      return
+    }
 
     // Check if it's an update command
     if (signal.isUpdate && signal.parsed) {
@@ -162,30 +352,24 @@ app.whenReady().then(async () => {
 
       // Get primary trading account
       const primaryAccount = accountService.getPrimaryAccount()
-      if (!primaryAccount) {
-        // In cloud-only mode, still process global commands (closeAll, deleteAll)
-        const isGlobalCommand = signal.parsed.update?.type === 'closeAll' || signal.parsed.update?.type === 'deleteAll'
 
-        if (isGlobalCommand) {
-          logger.info('No local account configured, but processing global command for cloud distribution')
-          // Use dummy account values - tradeModificationHandler will emit cloudOnlyModification
-          tradeModificationHandler.processUpdate(
-            signal.parsed,
-            signal.channelId,
-            'cloud', // Dummy account number
-            'MT5'    // Dummy platform
-          )
-        } else {
-          logger.warn('No active trading account configured, skipping non-global update command')
-          return
-        }
-      } else {
-        // Process the update with modification handler
+      if (primaryAccount) {
+        // Local account exists — process normally (may still emit to cloud if trades stored there)
         tradeModificationHandler.processUpdate(
           signal.parsed,
           signal.channelId,
           primaryAccount.account_number,
           primaryAccount.platform as 'MT4' | 'MT5'
+        )
+      } else {
+        // Cloud-only mode: process ALL update commands with a dummy account
+        // The tradeModificationHandler will emit cloudOnlyModification when no local trades match
+        logger.info(`Cloud-only mode: routing ${signal.parsed.update?.type} to cloud`)
+        tradeModificationHandler.processUpdate(
+          signal.parsed,
+          signal.channelId,
+          'cloud', // Dummy account number
+          'MT5'    // Dummy platform
         )
       }
     } else {
@@ -263,6 +447,25 @@ app.whenReady().then(async () => {
     })
   })
 
+  // Dropped update commands (nothing to act on, missing value, etc.) — show in the feed so the
+  // user sees WHY a provider message produced no trade change instead of assuming a bug.
+  tradeModificationHandler.on('updateSkipped', (data: { channelId: number; updateType: string; reason: string; timestamp: string }) => {
+    const cfg = channelConfigService.getConfig(data.channelId)
+    mainWindow?.webContents.send('signal:received', {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      channelId: data.channelId,
+      channelName: cfg?.channelName ?? `Channel ${data.channelId}`,
+      messageId: 0,
+      text: `Update command: ${data.updateType}`,
+      parsed: null,
+      config: null,
+      timestamp: data.timestamp,
+      signalType: 'skipped',
+      skipReason: data.reason,
+      isUpdate: false,
+    })
+  })
+
   // Listen for cloud-only modifications from trade modification handler (global commands)
   tradeModificationHandler.on('cloudOnlyModification', async (data: any) => {
     logger.info(`☁️ Cloud-only global command: ${data.type}`)
@@ -281,9 +484,14 @@ app.whenReady().then(async () => {
           parsedAt: new Date().toISOString(),
           status: 'pending' as const,
           affectedTickets: [],
-          percentage: 100
+          percentage: 100,
+          targetEntryPrice: data.targetEntryPrice || null, // Forward fuzzy price filter
+          newTPs: data.newTPs || null // Forward batch TP array
         })
-        logger.info(`✅ Global command pushed to cloud successfully`)
+        const extras = []
+        if (data.targetEntryPrice) extras.push(`targetEntry=${data.targetEntryPrice}`)
+        if (data.newTPs) extras.push(`newTPs=${JSON.stringify(data.newTPs)}`)
+        logger.info(`✅ Global command pushed to cloud successfully${extras.length ? ` (${extras.join(', ')})` : ''}`)
       } catch (error: any) {
         logger.error(`Failed to push global command to cloud: ${error.message}`)
       }
@@ -541,14 +749,37 @@ app.whenReady().then(async () => {
     mainWindow?.webContents.send('update-not-available', updateInfo)
   })
 
+  updateService.on('update-progress', (progress) => {
+    mainWindow?.webContents.send('update-progress', progress)
+  })
+
+  updateService.on('update-downloaded', (updateInfo) => {
+    logger.info(`Update downloaded: v${updateInfo.latestVersion}`)
+    mainWindow?.webContents.send('update-downloaded', updateInfo)
+  })
+
   updateService.on('error', (error) => {
     logger.error(`Update check error: ${error}`)
   })
+
+  // Installed copies start with Windows unless the user turned it off. A VPS reboot then brings the
+  // app, Telegram and monitoring back without anyone logging in.
+  applyAutoLaunchDefault()
 
   // Start auto-update checks
   updateService.startAutoUpdateCheck()
 
   createWindow()
+
+  servicesReady = true
+  if (pendingDeepLink) {
+    const link = pendingDeepLink
+    pendingDeepLink = null
+    handleDeepLink(link)
+  }
+
+  // Restore the Telegram session (and then monitoring) without any clicks
+  autoConnectTelegramIfPossible()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -585,6 +816,7 @@ app.on('before-quit', async () => {
 // IPC Handlers
 ipcMain.handle('telegram:connect', async (_, phoneNumber: string) => {
   try {
+    setSetting(SETTING_TELEGRAM_AUTOCONNECT, '1')
     await telegramService?.connect(phoneNumber)
     return { success: true }
   } catch (error: any) {
@@ -628,6 +860,8 @@ ipcMain.handle('telegram:startMonitoring', async (_, channelIds: number[]) => {
 
     // Set channel count to actual number of channels being monitored
     licenseService.setChannelCount(channelIds.length)
+    rememberMonitoring(channelIds, true)
+    broadcastMonitoringState()
 
     logger.info(`Started monitoring ${channelIds.length} channels`)
     return { success: true }
@@ -643,6 +877,9 @@ ipcMain.handle('telegram:stopMonitoring', async () => {
 
     // Reset channel count to 0 when stopping monitoring
     licenseService.setChannelCount(0)
+    // Keep the channel list so the next Start uses it, but do not auto-resume on launch
+    rememberMonitoring(getMonitoringState().channelIds, false)
+    broadcastMonitoringState()
 
     logger.info('Stopped monitoring all channels')
     return { success: true }
@@ -654,6 +891,8 @@ ipcMain.handle('telegram:stopMonitoring', async () => {
 
 ipcMain.handle('telegram:disconnect', async () => {
   try {
+    // The user asked to disconnect: do not silently reconnect on the next launch
+    setSetting(SETTING_TELEGRAM_AUTOCONNECT, '0')
     await telegramService?.disconnect()
     return { success: true }
   } catch (error: any) {
@@ -669,6 +908,73 @@ ipcMain.handle('telegram:isConnected', async () => {
   } catch (error: any) {
     logger.error('Is connected error:', error)
     return { success: false, isConnected: false, error: error.message }
+  }
+})
+
+ipcMain.handle('telegram:sendPassword', async (_, password: string) => {
+  try {
+    const result = await telegramService?.sendPassword(password)
+    return result || { success: true }
+  } catch (error: any) {
+    logger.error('2FA password error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Saved-session info so the UI can show "Reconnecting…" instead of the phone form
+ipcMain.handle('telegram:getSessionInfo', async () => {
+  try {
+    const savedPhone = telegramService?.getSavedPhone() || null
+    return {
+      success: true,
+      hasSavedSession: !!savedPhone,
+      phone: savedPhone,
+      isConnecting: telegramService?.isConnecting() || false,
+      isConnected: telegramService?.isConnected() || false,
+    }
+  } catch (error: any) {
+    return { success: false, hasSavedSession: false, error: error.message }
+  }
+})
+
+ipcMain.handle('telegram:getMonitoringState', async () => {
+  try {
+    return { success: true, ...getMonitoringState() }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// Open the website already logged in (single sign-on with the stored session token)
+ipcMain.handle('web:open', async (_, targetPath?: string) => {
+  try {
+    const url = licenseService.getWebUrl(targetPath || '/dashboard')
+    await shell.openExternal(url)
+    return { success: true }
+  } catch (error: any) {
+    logger.error('Open web error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// "Sign in with your browser": the website logs the user in and calls back via tsm://login
+ipcMain.handle('web:openDesktopSignIn', async () => {
+  try {
+    const url = `${getWebBaseUrl()}/auth/desktop?machineId=${encodeURIComponent(licenseService.getMachineId())}`
+    await shell.openExternal(url)
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('license:loginWithHandoffToken', async (_, token: string) => {
+  try {
+    const result = await licenseService.loginWithHandoffToken(token)
+    if (result.success) startTradeSyncIfConfigured()
+    return result
+  } catch (error: any) {
+    return { success: false, error: error.message }
   }
 })
 
@@ -747,6 +1053,211 @@ ipcMain.handle('channelConfig:detectKeywords', async (_, exampleSignal: string) 
     return { success: true, detected }
   } catch (error: any) {
     logger.error('Detect keywords error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Export a channel's recent text history to a JSON file chosen by the user.
+// Text only — media-only posts are skipped, image captions are kept.
+ipcMain.handle('channelConfig:exportHistory', async (_, channelId: number, opts?: { maxMessages?: number; maxAgeDays?: number; maxBytes?: number }) => {
+  try {
+    if (!telegramService?.isConnected()) {
+      return { success: false, error: 'Telegram is not connected' }
+    }
+    const messages = await telegramService.getChannelHistory(channelId, opts)
+    if (messages.length === 0) {
+      return { success: false, error: 'No text messages found in the selected window' }
+    }
+
+    const config = channelConfigService.getConfig(channelId)
+    const safeName = (config?.channelName || `channel-${channelId}`).replace(/[^\w\-]+/g, '_').slice(0, 60)
+    const stamp = new Date().toISOString().slice(0, 10)
+    const result = await dialog.showSaveDialog({
+      title: 'Export channel history',
+      defaultPath: path.join(app.getPath('documents'), `${safeName}-history-${stamp}.json`),
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePath) {
+      return { success: true, canceled: true }
+    }
+
+    const payload = {
+      channelId,
+      channelName: config?.channelName ?? null,
+      exportedAt: new Date().toISOString(),
+      count: messages.length,
+      messages
+    }
+    const json = JSON.stringify(payload, null, 2)
+    fs.writeFileSync(result.filePath, json, 'utf8')
+    logger.info(`Exported ${messages.length} messages for channel ${channelId} to ${result.filePath}`)
+    return { success: true, path: result.filePath, count: messages.length, bytes: Buffer.byteLength(json, 'utf8') }
+  } catch (error: any) {
+    logger.error('Export history error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// Pull recent history and ask the LLM (one call) to draft a channel configuration.
+ipcMain.handle('channelConfig:analyzeHistory', async (_, channelId: number, opts?: { maxMessages?: number; maxAgeDays?: number; maxBytes?: number }) => {
+  try {
+    // Uses the Anthropic API — advanced (personal) build only. Customer builds never reach this.
+    const { isAdvancedBuild } = await import('./utils/features')
+    if (!isAdvancedBuild()) {
+      return { success: false, error: 'Auto-configure is not available in this build' }
+    }
+    if (!telegramService?.isConnected()) {
+      return { success: false, error: 'Telegram is not connected' }
+    }
+    const messages = await telegramService.getChannelHistory(channelId, opts)
+    if (messages.length === 0) {
+      return { success: false, error: 'No text messages found in the selected window' }
+    }
+
+    const { analyzeChannelHistory } = await import('./services/channelHistoryAnalyzer')
+    const config = channelConfigService.getConfig(channelId)
+    const analysis = await analyzeChannelHistory(messages, {
+      channelName: config?.channelName,
+      log: (m) => logger.info(`[History Analyzer] ${m}`)
+    })
+    logger.info(`History analysis complete for channel ${channelId}: confidence=${analysis.confidence} signals≈${analysis.stats.estimatedSignals}`)
+    return { success: true, analysis }
+  } catch (error: any) {
+    logger.error('Analyze history error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// ─── Build feature flags (renderer hides advanced-only UI when absent) ───────
+ipcMain.handle('app:getFeatures', async () => {
+  const { isAdvancedBuild } = await import('./utils/features')
+  return { success: true, features: { advanced: isAdvancedBuild() } }
+})
+
+// ─── EA install / status helpers (setup checklist) ───────────────────────────
+
+interface DetectedTerminal { id: string; platform: 'MT4' | 'MT5'; expertsPath: string; broker?: string; alreadyInstalled: boolean }
+
+/** Scan %APPDATA%\MetaQuotes\Terminal\<hash>\ for MT4/MT5 data folders. */
+function detectMtTerminals(): DetectedTerminal[] {
+  const out: DetectedTerminal[] = []
+  try {
+    const root = path.join(app.getPath('appData'), 'MetaQuotes', 'Terminal')
+    if (!fs.existsSync(root)) return out
+    for (const hash of fs.readdirSync(root)) {
+      const base = path.join(root, hash)
+      if (!fs.statSync(base).isDirectory()) continue
+      let broker: string | undefined
+      const origin = path.join(base, 'origin.txt')
+      if (fs.existsSync(origin)) {
+        // origin.txt holds the terminal install path; last folder is usually the broker name
+        const p = fs.readFileSync(origin, 'utf8').replace(/\0/g, '').trim()
+        broker = p.split(/[\\/]/).filter(Boolean).pop()
+      }
+      for (const [folder, platform, ext] of [['MQL5', 'MT5', '.ex5'], ['MQL4', 'MT4', '.ex4']] as const) {
+        const experts = path.join(base, folder, 'Experts')
+        if (fs.existsSync(experts)) {
+          out.push({
+            id: `${hash}:${platform}`,
+            platform,
+            expertsPath: experts,
+            broker,
+            alreadyInstalled: fs.existsSync(path.join(experts, `TelegramSignalMirror${ext}`))
+          })
+        }
+      }
+    }
+  } catch (e: any) {
+    logger.warn(`detectMtTerminals failed: ${e.message}`)
+  }
+  return out
+}
+
+function bundledEaPath(platform: 'MT4' | 'MT5'): string | null {
+  const file = platform === 'MT4' ? 'TelegramSignalMirror.ex4' : 'TelegramSignalMirror.ex5'
+  const candidates = [
+    path.join(app.getAppPath(), 'assets', 'ea', file),
+    path.join(process.resourcesPath || '', 'assets', 'ea', file),
+    path.join(__dirname, '..', '..', 'assets', 'ea', file),
+    path.join(__dirname, '..', 'assets', 'ea', file)
+  ]
+  return candidates.find(p => p && fs.existsSync(p)) || null
+}
+
+ipcMain.handle('ea:detectTerminals', async () => {
+  try {
+    return { success: true, terminals: detectMtTerminals() }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('ea:install', async (_, terminalIds: string[]) => {
+  try {
+    const terminals = detectMtTerminals().filter(t => terminalIds.includes(t.id))
+    if (terminals.length === 0) return { success: false, error: 'No matching terminals found' }
+    const installed: { id: string; path: string }[] = []
+    for (const t of terminals) {
+      const src = bundledEaPath(t.platform)
+      if (!src) {
+        logger.warn(`No bundled EA for ${t.platform}`)
+        continue
+      }
+      const dest = path.join(t.expertsPath, path.basename(src))
+      fs.copyFileSync(src, dest)
+      installed.push({ id: t.id, path: dest })
+      logger.info(`Installed EA → ${dest}`)
+    }
+    if (installed.length === 0) return { success: false, error: 'EA binary not bundled with this build' }
+    return { success: true, installed }
+  } catch (error: any) {
+    logger.error('EA install error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('ea:status', async () => {
+  try {
+    const polling = apiServer?.getEaStatus() ?? []
+    const accounts = accountService.getAccounts().map(a => ({
+      account_number: a.account_number, platform: a.platform, is_active: a.is_active
+    }))
+    return { success: true, polling, accounts }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// ─── Weekly health summary ───────────────────────────────────────────────────
+ipcMain.handle('stats:weekly', async () => {
+  try {
+    const { getDatabase } = require('./database')
+    const db = getDatabase()
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19)
+
+    let received = 0, newSignals = 0, updates = 0, skipped = 0
+    const rows = db.exec('SELECT parsed_data FROM signals WHERE received_at >= ?', [since])
+    if (rows.length > 0) {
+      for (const r of rows[0].values) {
+        received++
+        const raw = r[0] as string | null
+        if (!raw) { skipped++; continue }
+        try {
+          const p = JSON.parse(raw)
+          if (p?.signalType === 'new') newSignals++
+          else if (p?.signalType === 'update') updates++
+          else skipped++
+        } catch { skipped++ }
+      }
+    }
+
+    let executed = 0
+    const ex = db.exec('SELECT COUNT(*) FROM active_trades WHERE COALESCE(opened_at, created_at) >= ?', [since])
+    if (ex.length > 0 && ex[0].values.length > 0) executed = Number(ex[0].values[0][0]) || 0
+
+    return { success: true, stats: { received, newSignals, updates, skipped, executed, byReason: [] } }
+  } catch (error: any) {
+    logger.error('Weekly stats error:', error)
     return { success: false, error: error.message }
   }
 })
@@ -883,6 +1394,7 @@ ipcMain.handle('license:login', async (_, email: string, password: string) => {
     // If login successful, restart trade sync with new auth token
     if (result.success) {
       startTradeSyncIfConfigured()
+      autoConnectTelegramIfPossible()
     }
 
     return result
@@ -1112,6 +1624,30 @@ ipcMain.handle('account:setActive', async (_, id: number, isActive: boolean) => 
   }
 })
 
+// Cloud-mode Platform Adapters
+ipcMain.handle('platforms:list', async () => {
+  try {
+    const { listPlatforms } = await import('./adapters')
+    return { success: true, platforms: listPlatforms() }
+  } catch (error: any) {
+    logger.error('platforms:list error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('platforms:testConnection', async (_, platformId: string, creds: any) => {
+  try {
+    const { createAdapter } = await import('./adapters')
+    const adapter = createAdapter(platformId as any)
+    const result = await adapter.connect(creds ?? {})
+    await adapter.disconnect()
+    return { success: true, result }
+  } catch (error: any) {
+    logger.error('platforms:testConnection error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 // Update Service Handlers
 ipcMain.handle('update:check', async () => {
   try {
@@ -1129,6 +1665,70 @@ ipcMain.handle('update:download', async (_, downloadUrl: string) => {
     return { success: true }
   } catch (error: any) {
     logger.error('Download update error:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('update:install', async () => {
+  try {
+    const ok = updateService?.installDownloadedUpdate() || false
+    return { success: ok, error: ok ? undefined : 'No downloaded update to install' }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('update:getStatus', async () => {
+  return {
+    success: true,
+    version: updateService?.getCurrentVersion() || app.getVersion(),
+    portable: updateService?.isPortable() ?? false,
+    downloaded: updateService?.hasDownloadedUpdate() || null,
+  }
+})
+
+// ─── Start with Windows ─────────────────────────────────────────────────────────
+const SETTING_AUTO_LAUNCH = 'auto_launch'
+
+function autoLaunchPath(): string {
+  // The portable launcher extracts to a temp dir; point the login item at the real portable exe
+  return process.env.PORTABLE_EXECUTABLE_FILE || process.execPath
+}
+
+function setAutoLaunch(enabled: boolean) {
+  if (process.platform !== 'win32' || !app.isPackaged) return
+  app.setLoginItemSettings({ openAtLogin: enabled, path: autoLaunchPath(), args: [] })
+  setSetting(SETTING_AUTO_LAUNCH, enabled ? '1' : '0')
+  logger.info(`Start with Windows ${enabled ? 'enabled' : 'disabled'}`)
+}
+
+function applyAutoLaunchDefault() {
+  if (process.platform !== 'win32' || !app.isPackaged) return
+  const stored = getSetting(SETTING_AUTO_LAUNCH)
+  if (stored === null) {
+    // First run: installed builds default to on, portable builds to off (their path may move)
+    setAutoLaunch(!process.env.PORTABLE_EXECUTABLE_DIR)
+  } else if (stored === '1') {
+    // Re-assert in case the exe path changed (installer upgrade)
+    app.setLoginItemSettings({ openAtLogin: true, path: autoLaunchPath(), args: [] })
+  }
+}
+
+ipcMain.handle('app:getAutoLaunch', async () => {
+  try {
+    const supported = process.platform === 'win32' && app.isPackaged
+    const enabled = supported ? app.getLoginItemSettings({ path: autoLaunchPath() }).openAtLogin : false
+    return { success: true, supported, enabled }
+  } catch (error: any) {
+    return { success: false, supported: false, enabled: false, error: error.message }
+  }
+})
+
+ipcMain.handle('app:setAutoLaunch', async (_, enabled: boolean) => {
+  try {
+    setAutoLaunch(!!enabled)
+    return { success: true, enabled: !!enabled }
+  } catch (error: any) {
     return { success: false, error: error.message }
   }
 })

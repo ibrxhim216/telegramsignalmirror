@@ -22,6 +22,27 @@ import {
 } from '../types/licenseConfig'
 import { logger } from '../utils/logger'
 
+
+/**
+ * Map a web subscription tier (basic, pro_annual, cloud_pro, ...) to the local license tier.
+ * Annual and cloud variants share the limits of their base plan. Anything unknown is treated
+ * as trial so the UI still renders, but it is logged so it can be fixed server-side.
+ */
+export function mapSubscriptionTier(subTier: string | null | undefined): LicenseTier {
+  const t = (subTier || '').toLowerCase()
+  if (t === 'lifetime') return 'advance'
+  if (t.startsWith('pro') || t === 'cloud_pro' || t === 'cloud_pro_annual') return 'pro'
+  if (t.startsWith('basic') || t === 'cloud_basic' || t === 'cloud_basic_annual') return 'starter'
+  if (t === 'free' || t === 'trial' || t === '') return 'trial'
+  logger.warn(`Unknown subscription tier "${subTier}" - treating as trial`)
+  return 'trial'
+}
+
+/** Public website base URL (login, billing, downloads). */
+export function getWebBaseUrl(): string {
+  return (process.env.VITE_API_URL || process.env.CLOUD_API_URL || 'https://www.telegramsignalmirror.com').replace(/\/$/, '')
+}
+
 export class LicenseService extends EventEmitter {
   private currentLicense: License | null = null
   private machineId: string
@@ -233,11 +254,7 @@ export class LicenseService extends EventEmitter {
       const now = new Date()
       const subscription = data.user.subscription
 
-      // Map tier names (basic/pro/lifetime -> starter/pro/advance)
-      let tier: LicenseTier = 'trial'
-      if (subscription.tier === 'basic') tier = 'starter'
-      else if (subscription.tier === 'pro') tier = 'pro'
-      else if (subscription.tier === 'lifetime') tier = 'advance'
+      const tier: LicenseTier = mapSubscriptionTier(subscription.tier)
 
       const license: License = {
         licenseKey: data.token, // Use JWT token as license key
@@ -291,6 +308,53 @@ export class LicenseService extends EventEmitter {
         error: error.message || 'Login failed',
       }
     }
+  }
+
+  /**
+   * Log in with a token handed over from the website (tsm://login?token=...).
+   * The handoff token is short-lived; exchange it for a normal session token first.
+   */
+  async loginWithHandoffToken(handoffToken: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const API_URL = getWebBaseUrl()
+      const response = await fetch(`${API_URL}/api/auth/desktop-exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          handoffToken,
+          machineId: this.machineId,
+          deviceName: `${require('os').platform()} - ${require('os').hostname()}`,
+        }),
+      })
+      const data: any = await response.json().catch(() => ({}))
+      if (!response.ok || !data.success || !data.token) {
+        return { success: false, error: data.error || 'The sign-in link is invalid or has expired. Open it again from the website.' }
+      }
+      this.saveToken(data.token)
+      const result = await this.validateLicenseWithAPI()
+      if (!result.isValid) {
+        this.clearToken()
+        return { success: false, error: result.reason || 'Your subscription is not active.' }
+      }
+      logger.info(`Logged in via website handoff: ${result.license?.tier}`)
+      this.emit('licenseActivated', result.license)
+      return { success: true }
+    } catch (error: any) {
+      logger.error('Handoff login failed:', error)
+      return { success: false, error: error.message || 'Sign-in failed' }
+    }
+  }
+
+  /**
+   * Build a website URL that logs the user in automatically (single sign-on) and lands on `path`.
+   * Falls back to the plain URL when there is no session token.
+   */
+  getWebUrl(path: string = '/dashboard'): string {
+    const base = getWebBaseUrl()
+    const safePath = path.startsWith('/') ? path : `/${path}`
+    const token = this.loadToken()
+    if (!token) return `${base}${safePath}`
+    return `${base}/auth/sso?token=${encodeURIComponent(token)}&redirect=${encodeURIComponent(safePath)}`
   }
 
   /**
@@ -418,11 +482,7 @@ export class LicenseService extends EventEmitter {
       const subscription = data.user.subscription
       const now = new Date()
 
-      // Map tier names
-      let tier: LicenseTier = 'trial'
-      if (subscription.tier === 'basic') tier = 'starter'
-      else if (subscription.tier === 'pro') tier = 'pro'
-      else if (subscription.tier === 'lifetime') tier = 'advance'
+      const tier: LicenseTier = mapSubscriptionTier(subscription.tier)
 
       const license: License = {
         licenseKey: token,
@@ -749,7 +809,7 @@ export class LicenseService extends EventEmitter {
   }
 
   /**
-   * Start validation loop (check every hour)
+   * Start validation loop (check every 15 minutes; also keeps the device's last-seen fresh on the website)
    */
   private startValidationLoop() {
     // Validate with API immediately if logged in
@@ -799,7 +859,7 @@ export class LicenseService extends EventEmitter {
           this.emit('licenseExpiringSoon', result)
         }
       }
-    }, 60 * 60 * 1000) // Every hour
+    }, 15 * 60 * 1000) // Every 15 minutes - doubles as the portal's device heartbeat
   }
 
   /**
@@ -810,6 +870,49 @@ export class LicenseService extends EventEmitter {
       clearInterval(this.validationInterval)
       this.validationInterval = null
     }
+  }
+
+  /**
+   * Force immediate license revalidation with API
+   *
+   * This method bypasses the hourly validation schedule and immediately
+   * checks the subscription status with the web API. Useful when:
+   * - User just completed payment
+   * - Subscription status needs to be refreshed immediately
+   * - Troubleshooting subscription issues
+   *
+   * @returns Promise<LicenseValidationResult>
+   */
+  async forceRevalidate(): Promise<LicenseValidationResult> {
+    logger.info('🔄 Force revalidation requested by user')
+
+    if (!this.isLoggedIn()) {
+      logger.warn('Cannot force revalidation - user not logged in')
+      return {
+        isValid: false,
+        license: null,
+        reason: 'Not logged in - please log in first',
+      }
+    }
+
+    logger.info('Checking subscription status with web API...')
+    const result = await this.validateLicenseWithAPI()
+
+    // Emit appropriate events based on result
+    if (result.isValid) {
+      logger.info(`✅ License revalidated successfully: ${result.license?.tier} (${result.license?.status})`)
+      this.emit('licenseUpdated', result.license)
+
+      if (result.shouldRenew) {
+        logger.warn(`⚠️  License expiring soon: ${result.daysRemaining} days remaining`)
+        this.emit('licenseExpiringSoon', result)
+      }
+    } else {
+      logger.error(`❌ License revalidation failed: ${result.reason}`)
+      this.emit('licenseInvalid', result)
+    }
+
+    return result
   }
 
   /**

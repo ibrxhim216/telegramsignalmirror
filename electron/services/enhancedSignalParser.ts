@@ -1,6 +1,8 @@
 import { ChannelConfig } from '../types/channelConfig'
 import { SignalParser, ParsedSignal } from './signalParser'
 import { logger } from '../utils/logger'
+import { llmSignalParser } from './llmSignalParser'
+import { splitEntryEnabled } from '../utils/features'
 import {
   passesTimeFilter,
   applyTradeFilters,
@@ -14,8 +16,8 @@ export type SignalType = 'new' | 'update'
 export interface ParsedUpdate {
   type: 'closeTP1' | 'closeTP2' | 'closeTP3' | 'closeTP4' | 'closeFull' | 'closeHalf' | 'closePartial' |
         'breakEven' | 'setTP1' | 'setTP2' | 'setTP3' | 'setTP4' | 'setTP5' | 'setTP' | 'setSL' |
-        'deletePending' | 'layer' | 'closeAll' | 'deleteAll' | 'removeSL'
-  value?: number | number[]  // New value if setting TP/SL
+        'deletePending' | 'layer' | 'closeAll' | 'deleteAll' | 'removeSL' | 'closeByEntry'
+  value?: number | number[]  // New value if setting TP/SL, or target entry price for closeByEntry
   percentage?: number        // For partial close
   originalSignalId?: number  // Reference to original signal
 }
@@ -27,10 +29,16 @@ export interface EnhancedParsedSignal extends ParsedSignal {
   isSkipped: boolean
   forceMarket: boolean
   delayMs: number
+  riskMultiplier?: number  // 0.5 for half-risk signals; 1.0 default
+  isHedge?: boolean        // true if this is a hedge signal — EA will match lots to open opposite positions
+  llmReasoning?: string    // Claude's explanation of how it interpreted the message
+  entryPrice2?: number     // Split entry second price (added at signal emit time)
 }
 
 export class EnhancedSignalParser {
   private aiParser: SignalParser
+  /** Why the last parse() returned null. Read by the caller to show a "Skipped" card instead of dropping silently. */
+  public lastSkipReason: string | null = null
 
   constructor() {
     this.aiParser = new SignalParser()
@@ -39,51 +47,98 @@ export class EnhancedSignalParser {
   /**
    * Parse a signal using channel-specific keyword configuration
    */
-  parse(text: string, config: ChannelConfig): EnhancedParsedSignal | null {
+  async parse(text: string, config: ChannelConfig): Promise<EnhancedParsedSignal | null> {
+    this.lastSkipReason = null
     try {
       const normalized = text.toUpperCase()
 
       // Check if signal should be ignored or skipped
       if (this.matchesKeywords(normalized, config.additionalKeywords.ignoreKeyword)) {
         logger.debug('Signal ignored by ignore keyword')
+        this.lastSkipReason = 'Matched an Ignore keyword'
         return null
       }
 
       if (this.matchesKeywords(normalized, config.additionalKeywords.skipKeyword)) {
         logger.debug('Signal skipped by skip keyword')
+        this.lastSkipReason = 'Matched a Skip keyword'
         return null
       }
 
       // Check time filter
       if (!passesTimeFilter(config.timeFilter)) {
         logger.debug('Signal rejected by time filter')
+        this.lastSkipReason = 'Outside the channel time filter'
         return null
       }
 
-      // Check if it's an update command
+      // LLM-only mode: channels with splitEntryMode enabled skip rule-based parsing entirely
+      // and route everything through Claude. Safety: LLM refuses to open new trades without SL.
+      // GATED by the build flag: customer builds never take this branch, even if a saved config
+      // has splitEntryMode=true — they fall through to the rule-based parser below.
+      if (splitEntryEnabled(config)) {
+        logger.debug('LLM-only mode: routing message to Claude')
+        const llmResult = await llmSignalParser.parse(text, config)
+        if (!llmResult) {
+          this.lastSkipReason = llmSignalParser.lastSkipReason || 'Not recognized as a signal or update'
+          return null
+        }
+
+        const label = llmResult.signalType === 'update'
+          ? llmResult.update?.type
+          : `${llmResult.direction} ${llmResult.symbol}`
+        logger.info(`✅ LLM parsed: ${llmResult.signalType} ${label}`)
+
+        // Apply filters/overrides for new signals only (updates don't need them)
+        if (llmResult.signalType === 'new') {
+          const preFilter: EnhancedParsedSignal = llmResult
+          let signal: EnhancedParsedSignal | null = llmResult
+          signal = applyTradeFilters(signal, config)
+          if (!signal) { this.lastSkipReason = this.describeFilterRejection(preFilter, config); return null }
+          signal = applySLTPOverrides(signal, config)
+          signal = applyModifications(signal, config)
+          signal = applySymbolMapping(signal, config)
+          if (!signal) { this.lastSkipReason = 'Symbol excluded by symbol mapping settings'; return null }
+          return signal
+        }
+        return llmResult
+      }
+
+      // Standard (rule-based) mode for all other channels
       const updateType = this.detectUpdateType(normalized, config)
       if (updateType) {
         return this.parseUpdate(text, normalized, config, updateType)
       }
 
-      // Parse as new signal
       let signal = this.parseNewSignal(text, normalized, config)
-      if (!signal) return null
+      if (!signal) {
+        if (!this.lastSkipReason) this.lastSkipReason = 'Not recognized as a signal (no matching keywords)'
+        return null
+      }
 
-      // Apply all modifications and filters
+      const preFilter = signal
       signal = applyTradeFilters(signal, config)
-      if (!signal) return null
+      if (!signal) { this.lastSkipReason = this.describeFilterRejection(preFilter, config); return null }
 
       signal = applySLTPOverrides(signal, config)
       signal = applyModifications(signal, config)
       signal = applySymbolMapping(signal, config)
-      if (!signal) return null
+      if (!signal) { this.lastSkipReason = 'Symbol excluded by symbol mapping settings'; return null }
 
       return signal
     } catch (error: any) {
       logger.error('Enhanced signal parsing error:', error)
+      this.lastSkipReason = `Parser error: ${error?.message || error}`
       return null
     }
+  }
+
+  /** Human-readable reason for a trade-filter rejection, derived from the pre-filter signal. */
+  private describeFilterRejection(sig: EnhancedParsedSignal, config: ChannelConfig): string {
+    const f = config.tradeFilters
+    if (f?.ignoreWithoutSL && !sig.stopLoss) return 'No stop loss in signal (Ignore Without SL is on)'
+    if (f?.ignoreWithoutTP && (!sig.takeProfits || sig.takeProfits.length === 0)) return 'No take profit in signal (Ignore Without TP is on)'
+    return 'Rejected by trade filters'
   }
 
   /**
@@ -94,6 +149,7 @@ export class EnhancedSignalParser {
     const symbol = this.extractSymbol(normalized)
     if (!symbol) {
       logger.debug('No symbol found')
+      this.lastSkipReason = 'No trading symbol found in message'
 
       // Fallback to AI parser if enabled
       if (config.useAIParser) {
@@ -110,6 +166,7 @@ export class EnhancedSignalParser {
     const direction = this.extractDirection(normalized, config)
     if (!direction) {
       logger.debug('No direction found')
+      this.lastSkipReason = 'No BUY/SELL direction found (check Buy/Sell keywords)'
 
       // Fallback to AI parser
       if (config.useAIParser) {
@@ -146,6 +203,7 @@ export class EnhancedSignalParser {
 
     if (confidence < 0.4) {
       logger.debug('Low confidence signal')
+      this.lastSkipReason = `Looks like a signal but too incomplete to trade (confidence ${(confidence * 100).toFixed(0)}%)`
 
       // Try AI parser as fallback
       if (config.useAIParser) {
@@ -201,6 +259,16 @@ export class EnhancedSignalParser {
       }
     }
 
+    // Extract target entry price for closeByEntry
+    // Use the original (non-normalized) text to preserve decimal precision
+    if (updateType === 'closeByEntry') {
+      const priceInParens = originalText.match(/\(\s*([0-9]+\.?[0-9]*)\s*\)/)
+      if (priceInParens) {
+        update.value = parseFloat(priceInParens[1])
+        logger.debug(`closeByEntry: target entry price = ${update.value}`)
+      }
+    }
+
     return {
       symbol: '',  // Will be matched to existing trade
       direction: 'BUY',  // Placeholder
@@ -225,6 +293,13 @@ export class EnhancedSignalParser {
     if (this.matchesKeywords(text, addKeywords.deleteAll)) return 'deleteAll'
     if (this.matchesKeywords(text, addKeywords.layer)) return 'layer'
     if (this.matchesKeywords(text, addKeywords.removeSL)) return 'removeSL'
+
+    // Check for close-by-entry price pattern BEFORE generic update keywords
+    // Matches messages like: "Close lower sell trade (4584.7) immediately"
+    //                         "Close upper sell trade (4593.5) now"
+    //                         "Close buy trade (1.2345)"
+    const closeByEntryPattern = /close\s+(?:lower|upper|sell\s+trade|buy\s+trade|sell|buy)\b[^(]*\(\s*([0-9]+\.?[0-9]*)\s*\)/i
+    if (closeByEntryPattern.test(text)) return 'closeByEntry'
 
     // Check regular update keywords
     const keywords = config.updateKeywords
@@ -311,6 +386,21 @@ export class EnhancedSignalParser {
             : parseFloat(reconstructed)
         } else {
           second = parseFloat(secondRaw)
+        }
+
+        // Determine if this is a true split entry or an abbreviated range.
+        // Abbreviated: 4028/32 → reconstructed second (4032) should be very close to raw secondRaw (32 → treated as 4032).
+        // Split entry:  4584.7/93.5 → reconstructed second (4584.793.5 nonsense or 459393.5) differs from raw 93.5 by > threshold.
+        const rawSecond = parseFloat(secondRaw)
+        const splitEntryThreshold = 1.0
+        const isSplitEntry = Math.abs(second - rawSecond) > splitEntryThreshold
+
+        // Build-gated: customer builds never receive two entry prices from the rule-based parser,
+        // even if a saved config still carries splitEntryMode=true — the range collapses via entryRangeStrategy.
+        if (isSplitEntry && splitEntryEnabled(config)) {
+          // True split entry: return BOTH prices so the caller can create two orders
+          logger.debug(`Detected split entry: [${first}, ${rawSecond}]`)
+          return [first, rawSecond]
         }
 
         const strategy = config.advancedSettings.entryRangeStrategy

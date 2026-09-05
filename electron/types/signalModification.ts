@@ -55,6 +55,8 @@ export interface SignalModification {
   price?: number             // Specific price level
   pips?: number              // Pips distance
   percentage?: number        // Percentage (for partial close)
+  targetEntryPrice?: number | null  // For delete-by-entry: cancel pending orders near this price
+  newValue?: number          // For update_sl / update_tp: new value to set
 
   // Track original keyword intent (for ambiguous cases like close_partial)
   originalAction?: 'close' | 'delete'  // Was it "close" or "delete" keyword?

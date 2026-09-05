@@ -1,15 +1,18 @@
 {
   "name": "telegram-signal-mirror",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Desktop application that mirrors trading signals from Telegram to MT4/MT5/cTrader",
   "main": "electron/index.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
     "dev:electron": "wait-on http://localhost:5555 && cross-env NODE_ENV=development electron .",
-    "build": "npm run build:electron && vite build && electron-builder",
+    "build": "npm run build:electron && vite build && electron-builder --publish never",
     "build:electron": "node build-electron.js",
     "build:win": "npm run build -- --win",
+    "build:renderer": "vite build",
+    "pack:advanced": "electron-builder --win portable --publish never --config.productName=\"TSM Advanced\"",
+    "build:advanced": "node build-advanced.js",
     "build:mac": "npm run build -- --mac",
     "build:linux": "npm run build -- --linux",
     "preview": "vite preview",
@@ -40,6 +43,7 @@
     "clsx": "^2.1.0",
     "compromise": "^14.10.0",
     "date-fns": "^3.3.1",
+    "electron-updater": "^6.8.9",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.344.0",
@@ -96,13 +100,34 @@
       ".env",
       "assets/**/*",
       "!electron/**/*.ts",
-      "!electron/tsconfig.json"
+      "!electron/tsconfig.json",
+      "!node_modules/lucide-react/**",
+      "!node_modules/date-fns/**",
+      "!node_modules/react/**",
+      "!node_modules/react-dom/**",
+      "!node_modules/react-router/**",
+      "!node_modules/react-router-dom/**",
+      "!node_modules/@remix-run/**",
+      "!node_modules/scheduler/**",
+      "!node_modules/zustand/**",
+      "!node_modules/clsx/**",
+      "!node_modules/better-sqlite3/**",
+      "!node_modules/wordnet-db/**",
+      "!node_modules/sql.js/dist/*asm*",
+      "!node_modules/sql.js/dist/*debug*",
+      "!node_modules/sql.js/dist/*.zip",
+      "!node_modules/sql.js/dist/worker*"
     ],
+    "compression": "maximum",
     "asarUnpack": [
       ".env"
     ],
     "win": {
       "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
         {
           "target": "portable",
           "arch": ["x64"]
@@ -112,6 +137,29 @@
       "verifyUpdateCodeSignature": false,
       "signAndEditExecutable": false
     },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "TelegramSignalMirror-Setup-${version}.${ext}",
+      "shortcutName": "Telegram Signal Mirror",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "portable": {
+      "artifactName": "${productName} ${version}.${ext}"
+    },
+    "protocols": [
+      {
+        "name": "Telegram Signal Mirror",
+        "schemes": ["tsm"]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://www.telegramsignalmirror.com/downloads/"
+      }
+    ],
     "mac": {
       "target": [
         "dmg"

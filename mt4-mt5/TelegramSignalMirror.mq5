@@ -33,6 +33,8 @@ input ENUM_RISK_MODE RiskMode = RISK_FIXED;             // Risk Mode (applies to
 input double   FixedLotSize = 0.01;                     // Fixed Lot Size
 input double   RiskPercent = 2.0;                       // Risk % of Balance
 input double   RiskAmount = 100.0;                      // Risk $ Amount
+enum ENUM_RISK_APPLIES { RISK_TOTAL_POSITION, RISK_PER_TP_ORDER };
+input ENUM_RISK_APPLIES RiskAppliesTo = RISK_TOTAL_POSITION; // Risk Applies To (Total = split across TP orders; Per TP = each order gets full risk)
 
 // TP Selection - Enable/Disable Individual TPs
 input group "========== TP SELECTION =========="
@@ -1155,10 +1157,57 @@ void ProcessSignal(string signalJson)
    }
    else
    {
-      // Equal split: every enabled TP gets the full baseLotSize
+      // Equal split across the TP orders that will actually be opened (enabled AND present in signal).
+      //
+      // RISK_TOTAL_POSITION (default): baseLotSize is the lot that loses RiskAmount/RiskPercent at the SL.
+      //   Dividing it across N orders means a full stop-out costs exactly the stated risk, regardless of
+      //   how many TPs the provider posted. Previously every order got the FULL base lot, so a 3-TP
+      //   signal risked 3x the stated amount.
+      // RISK_PER_TP_ORDER: legacy behaviour — every TP order gets the full base lot.
+      // Fixed-lot mode is always per order ("0.01 fixed" means 0.01 per position).
+      int tpOrders = 0;
       for(int w = 0; w < 10; w++)
-         lotSizes[w] = tpEnabled[w] ? baseLotSize : 0;
-      Print("📊 EQUAL LOT MODE: each enabled TP gets ", baseLotSize, " lots");
+         if(tpEnabled[w] && takeProfits[w] != 0) tpOrders++;
+
+      bool divideAcrossTPs = (RiskAppliesTo == RISK_TOTAL_POSITION) && (config.riskMode != "fixed") && tpOrders > 1;
+
+      if(!divideAcrossTPs)
+      {
+         for(int w = 0; w < 10; w++)
+            lotSizes[w] = tpEnabled[w] ? baseLotSize : 0;
+         Print("📊 EQUAL LOT MODE (per order): each enabled TP gets ", baseLotSize, " lots");
+      }
+      else
+      {
+         double minLot  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+         double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+         if(lotStep <= 0) lotStep = 0.01;
+         double perOrder = NormalizeDouble(MathFloor((baseLotSize / tpOrders) / lotStep) * lotStep, 2);
+
+         if(perOrder >= minLot)
+         {
+            for(int w = 0; w < 10; w++)
+               lotSizes[w] = (tpEnabled[w] && takeProfits[w] != 0) ? perOrder : 0;
+            Print("📊 EQUAL SPLIT (total risk): base lot ", baseLotSize, " ÷ ", tpOrders, " TP orders = ", perOrder, " lots each");
+         }
+         else
+         {
+            // Budget too small for one min-lot order per TP. Open as many as fit (from TP1 up) at min lot
+            // and drop the rest, so total risk stays at or under the stated amount instead of over it.
+            int affordable = (int)MathFloor(baseLotSize / minLot);
+            if(affordable < 1) affordable = 1;
+            int assigned = 0;
+            string dropped = "";
+            for(int w = 0; w < 10; w++)
+            {
+               if(!(tpEnabled[w] && takeProfits[w] != 0)) { lotSizes[w] = 0; continue; }
+               if(assigned < affordable) { lotSizes[w] = minLot; assigned++; }
+               else { lotSizes[w] = 0; dropped += (dropped == "" ? "" : ",") + "TP" + IntegerToString(w + 1); }
+            }
+            Print("⚠️  Risk budget (", baseLotSize, " lots) is below ", tpOrders, " x min lot ", minLot,
+                  " — opening ", assigned, " order(s) at ", minLot, " lots", (dropped != "" ? ", skipping " + dropped : ""));
+         }
+      }
    }
 
    Print("📊 TP Selection: TP1=", (EnableTP1?"ON":"OFF"), " TP2=", (EnableTP2?"ON":"OFF"), " TP3=", (EnableTP3?"ON":"OFF"), " TP4=", (EnableTP4?"ON":"OFF"), " TP5=", (EnableTP5?"ON":"OFF"), " TP6=", (EnableTP6?"ON":"OFF"), " TP7=", (EnableTP7?"ON":"OFF"), " TP8=", (EnableTP8?"ON":"OFF"), " TP9=", (EnableTP9?"ON":"OFF"), " TP10=", (EnableTP10?"ON":"OFF"));
@@ -1502,7 +1551,7 @@ double CalculateLotSize(string symbol, double entryPrice, double stopLoss, Signa
       else
       {
          lotSize = riskAmount / (stopLossPips * tickValue);
-         Print("💰 Risk calculation: RiskAmount=$", riskAmount, " SLPips=", stopLossPips, " TickValue=", tickValue, " LotSize=", lotSize);
+         Print("💰 Risk calculation: RiskAmount=", riskAmount, " ", AccountInfoString(ACCOUNT_CURRENCY), " SLPips=", stopLossPips, " TickValue=", tickValue, " LotSize=", lotSize);
       }
    }
 

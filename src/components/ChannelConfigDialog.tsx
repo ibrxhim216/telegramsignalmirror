@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Save, Upload, Download, RotateCcw, Sparkles } from 'lucide-react'
+import { X, Save, Upload, Download, RotateCcw, Sparkles, History, Wand2 } from 'lucide-react'
 
 interface ChannelConfig {
   channelId: number
@@ -41,6 +41,7 @@ interface ChannelConfig {
   advancedSettings: {
     delayInMsec: number
     entryRangeStrategy: 'first' | 'last' | 'middle'
+    splitEntryMode: boolean
     slInPips: boolean
     tpInPips: boolean
     readImage: boolean
@@ -76,6 +77,18 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
   const [exampleSignal, setExampleSignal] = useState('')
   const [detectedKeywords, setDetectedKeywords] = useState<any>(null)
   const [detecting, setDetecting] = useState(false)
+  // History-driven auto-configuration (LLM reads recent channel messages)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [analysisSource, setAnalysisSource] = useState<'example' | 'history'>('example')
+  // Build feature flags. Advanced-only controls (Split Entry Mode, Auto-configure) render only when
+  // the app was built with ADVANCED_FEATURES — customer builds never show them.
+  const [features, setFeatures] = useState<{ advanced: boolean }>({ advanced: false })
+  useEffect(() => {
+    window.electron.app?.getFeatures?.()
+      .then((r) => { if (r?.success && r.features) setFeatures(r.features) })
+      .catch(() => { /* default: not advanced */ })
+  }, [])
 
   useEffect(() => {
     if (isOpen && channelId) {
@@ -235,13 +248,37 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
       if (detectedKeywords.signalKeywords.takeProfit) newSignalKeywords.takeProfit = detectedKeywords.signalKeywords.takeProfit
       if (detectedKeywords.signalKeywords.entryPoint) newSignalKeywords.entryPoint = detectedKeywords.signalKeywords.entryPoint
 
+      // Merge update / additional keywords when present (history analysis provides these;
+      // the single-example detector usually does not). Only non-empty lists overwrite.
+      const mergeLists = (current: any, incoming: any) => {
+        const out: any = { ...current }
+        for (const key of Object.keys(incoming || {})) {
+          const list = incoming[key]
+          if (Array.isArray(list) && list.length > 0) out[key] = list
+        }
+        return out
+      }
+      const newUpdateKeywords = mergeLists(config.updateKeywords, detectedKeywords.updateKeywords)
+      const newAdditionalKeywords = mergeLists(config.additionalKeywords, detectedKeywords.additionalKeywords)
+
+      // Advanced-setting hints from history analysis (format flags only — never risk settings)
+      const advHints = detectedKeywords.advancedSettings || {}
+      const newAdvanced: any = {
+        ...config.advancedSettings,
+        tpFormatMode: detectedKeywords.detectedTPFormat || (config.advancedSettings as any).tpFormatMode
+      }
+      if (advHints.entryRangeStrategy) newAdvanced.entryRangeStrategy = advHints.entryRangeStrategy
+      if (typeof advHints.slInPips === 'boolean') newAdvanced.slInPips = advHints.slInPips
+      if (typeof advHints.tpInPips === 'boolean') newAdvanced.tpInPips = advHints.tpInPips
+      // splitEntryMode is deliberately NOT auto-applied: it changes execution (2 orders, LLM parsing).
+      // It's surfaced as a suggestion for the user to opt into.
+
       setConfig({
         ...config,
         signalKeywords: newSignalKeywords,
-        advancedSettings: {
-          ...config.advancedSettings,
-          tpFormatMode: detectedKeywords.detectedTPFormat || config.advancedSettings.tpFormatMode
-        }
+        updateKeywords: newUpdateKeywords,
+        additionalKeywords: newAdditionalKeywords,
+        advancedSettings: newAdvanced
       })
     }
 
@@ -249,6 +286,48 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
     setShowKeywordGenerator(false)
     setExampleSignal('')
     setDetectedKeywords(null)
+    setAnalysisSource('example')
+  }
+
+  // Save the channel's recent text history to a JSON file (text only, capped at 500 msgs / 90 days / 2 MB)
+  const handleExportHistory = async () => {
+    setExporting(true)
+    try {
+      const result = await window.electron.channelConfig.exportHistory(channelId)
+      if (result.canceled) return
+      if (result.success) {
+        alert(`Exported ${result.count} messages (${Math.round((result.bytes || 0) / 1024)} KB) to:\n${result.path}`)
+      } else {
+        alert('Export failed: ' + (result.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error exporting history:', error)
+      alert('Error exporting history')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // Read recent history and let the LLM draft the configuration; result is shown in the
+  // same review modal used by "Detect Keywords" so the user confirms before anything is applied.
+  const handleAnalyzeHistory = async () => {
+    setAnalyzing(true)
+    try {
+      const result = await window.electron.channelConfig.analyzeHistory(channelId)
+      if (result.success && result.analysis) {
+        setAnalysisSource('history')
+        setExampleSignal('')
+        setDetectedKeywords(result.analysis)
+        setShowKeywordGenerator(true)
+      } else {
+        alert('Auto-configure failed: ' + (result.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error analyzing history:', error)
+      alert('Error analyzing channel history')
+    } finally {
+      setAnalyzing(false)
+    }
   }
 
   if (!isOpen) return null
@@ -505,6 +584,25 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
                         </select>
                       </div>
 
+                      {/* Advanced build only: routes the channel through AI parsing + two-entry execution */}
+                      {features.advanced && (
+                      <div className="col-span-2">
+                        <div className="flex items-start space-x-2">
+                          <input
+                            type="checkbox"
+                            id="splitEntryMode"
+                            checked={config.advancedSettings.splitEntryMode ?? false}
+                            onChange={(e) => updateAdvancedSetting('splitEntryMode', e.target.checked)}
+                            className="rounded mt-0.5 flex-shrink-0"
+                          />
+                          <div>
+                            <label htmlFor="splitEntryMode" className="text-sm text-gray-300 cursor-pointer">Split Entry Mode <span className="text-[10px] uppercase tracking-wide text-indigo-300 ml-1">advanced</span></label>
+                            <p className="text-xs text-gray-500 mt-0.5">Routes this channel through AI parsing; ENTRY: 4584.7/93.5 opens two separate orders (2/3 deeper, 1/3 probe) instead of using range strategy</p>
+                          </div>
+                        </div>
+                      </div>
+                      )}
+
                       <div className="flex items-center space-x-2">
                         <input
                           type="checkbox"
@@ -574,6 +672,27 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
                   <RotateCcw size={16} />
                   Reset
                 </button>
+                <span className="w-px bg-gray-600 mx-1" />
+                <button
+                  onClick={handleExportHistory}
+                  disabled={exporting || analyzing}
+                  title="Save the channel's recent text messages (last 500 / 90 days / 2 MB) to a JSON file"
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded transition-colors"
+                >
+                  <History size={16} />
+                  {exporting ? 'Exporting…' : 'Export History'}
+                </button>
+                {features.advanced && (
+                <button
+                  onClick={handleAnalyzeHistory}
+                  disabled={exporting || analyzing}
+                  title="Read the channel's recent messages and draft keywords + format settings automatically"
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded transition-colors"
+                >
+                  <Wand2 size={16} />
+                  {analyzing ? 'Analyzing…' : 'Auto-configure'}
+                </button>
+                )}
               </div>
               <button
                 onClick={saveConfig}
@@ -595,13 +714,14 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
               <h3 className="text-lg font-semibold text-white flex items-center space-x-2">
                 <Sparkles className="text-purple-400" size={20} />
-                <span>Generate Keywords from Example</span>
+                <span>{analysisSource === 'history' ? 'Auto-configure from Channel History' : 'Generate Keywords from Example'}</span>
               </h3>
               <button
                 onClick={() => {
                   setShowKeywordGenerator(false)
                   setExampleSignal('')
                   setDetectedKeywords(null)
+                  setAnalysisSource('example')
                 }}
                 className="text-gray-400 hover:text-white transition-colors"
               >
@@ -611,10 +731,26 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
 
             {/* Modal Content */}
             <div className="p-6 overflow-y-auto max-h-[70vh]">
+              {analysisSource === 'history' && detectedKeywords?.stats && (
+                <div className="mb-4 bg-indigo-950/40 border border-indigo-800/50 rounded-lg p-3 text-sm text-gray-300">
+                  Analyzed <span className="text-white font-medium">{detectedKeywords.stats.messagesAnalyzed}</span> text messages
+                  {detectedKeywords.stats.oldest && detectedKeywords.stats.newest && (
+                    <> from {new Date(detectedKeywords.stats.oldest).toLocaleDateString()} to {new Date(detectedKeywords.stats.newest).toLocaleDateString()}</>
+                  )}
+                  {typeof detectedKeywords.stats.estimatedSignals === 'number' && detectedKeywords.stats.estimatedSignals > 0 && (
+                    <>, about <span className="text-white font-medium">{detectedKeywords.stats.estimatedSignals}</span> of them signals</>
+                  )}
+                  . Review the draft below, then apply it and adjust anything before saving.
+                </div>
+              )}
+
+              {analysisSource === 'example' && (
               <p className="text-gray-300 text-sm mb-4">
                 Paste an example signal from your provider below. The app will automatically detect the keywords used for BUY, SELL, TP, SL, ENTRY, etc.
               </p>
+              )}
 
+              {analysisSource === 'example' && (<>
               <textarea
                 value={exampleSignal}
                 onChange={(e) => setExampleSignal(e.target.value)}
@@ -638,6 +774,7 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
               >
                 {detecting ? 'Detecting Keywords...' : 'Detect Keywords'}
               </button>
+              </>)}
 
               {/* Detection Results */}
               {detectedKeywords && (
@@ -689,6 +826,63 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
                         </span>
                       </div>
                     </div>
+
+                    {detectedKeywords.summary && (
+                      <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h5 className="text-xs font-semibold text-gray-400 mb-2">Provider summary:</h5>
+                        <p className="text-xs text-gray-300 leading-relaxed">{detectedKeywords.summary}</p>
+                      </div>
+                    )}
+
+                    {detectedKeywords.updateKeywords && Object.values(detectedKeywords.updateKeywords).some((v: any) => Array.isArray(v) && v.length > 0) && (
+                      <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h5 className="text-xs font-semibold text-gray-400 mb-2">Management keywords:</h5>
+                        <div className="space-y-1 text-xs">
+                          {Object.entries(detectedKeywords.updateKeywords).map(([key, list]: [string, any]) =>
+                            Array.isArray(list) && list.length > 0 ? (
+                              <div key={key} className="flex items-start">
+                                <span className="text-gray-400 w-28 shrink-0">{key}:</span>
+                                <span className="text-blue-300">{list.join(', ')}</span>
+                              </div>
+                            ) : null
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {detectedKeywords.advancedSettings?.splitEntryMode && (
+                      <div className="mt-4 pt-4 border-t border-gray-700 text-xs text-yellow-300">
+                        This provider appears to post two entry levels per signal. Consider enabling <span className="font-semibold">Split Entry Mode</span> in Advanced Settings (not applied automatically).
+                      </div>
+                    )}
+
+                    {detectedKeywords.examples && (detectedKeywords.examples.signals?.length > 0 || detectedKeywords.examples.updates?.length > 0) && (
+                      <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h5 className="text-xs font-semibold text-gray-400 mb-2">Example messages found:</h5>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {detectedKeywords.examples.signals?.length > 0 && (
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wide text-green-400 mb-1">Signals ({detectedKeywords.examples.signals.length})</div>
+                              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                {detectedKeywords.examples.signals.map((s: string, i: number) => (
+                                  <pre key={i} className="text-[11px] text-gray-300 bg-gray-900 rounded p-2 whitespace-pre-wrap font-mono">{s}</pre>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {detectedKeywords.examples.updates?.length > 0 && (
+                            <div>
+                              <div className="text-[11px] uppercase tracking-wide text-blue-400 mb-1">Updates ({detectedKeywords.examples.updates.length})</div>
+                              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                {detectedKeywords.examples.updates.map((s: string, i: number) => (
+                                  <pre key={i} className="text-[11px] text-gray-300 bg-gray-900 rounded p-2 whitespace-pre-wrap font-mono">{s}</pre>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {detectedKeywords.suggestions && detectedKeywords.suggestions.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-gray-700">

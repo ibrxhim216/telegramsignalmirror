@@ -66,6 +66,37 @@ export default function SignalFeed({ isMonitoring }: SignalFeedProps) {
           const parsed = signal.parsed
           const isBuy = parsed?.direction?.includes('BUY')
 
+          // Skipped message: muted card that explains WHY nothing was executed.
+          // Every drop path (filters, no SL, dedup, unrecognized, dropped update) lands here.
+          if (signal.signalType === 'skipped') {
+            return (
+              <div
+                key={signal.id}
+                className="bg-gray-800/40 rounded-xl border border-dashed border-gray-700 overflow-hidden"
+              >
+                <div className="p-3 flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-gray-700/40 shrink-0">
+                    <Clock className="text-gray-500" size={18} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-gray-700 text-gray-300 uppercase tracking-wide">Skipped</span>
+                      {signal.channelName && (
+                        <span className="text-xs text-gray-500 truncate">{signal.channelName}</span>
+                      )}
+                      <span className="text-xs text-gray-500 ml-auto">{new Date(signal.timestamp).toLocaleString()}</span>
+                    </div>
+                    <p className="text-sm text-amber-300/90 mt-1">{signal.skipReason || 'Not actionable'}</p>
+                    <details className="mt-2">
+                      <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400">Original message</summary>
+                      <div className="text-xs text-gray-400 whitespace-pre-wrap mt-1 bg-gray-900/50 rounded p-2">{signal.text}</div>
+                    </details>
+                  </div>
+                </div>
+              </div>
+            )
+          }
+
           return (
             <div
               key={signal.id}
@@ -121,6 +152,9 @@ export default function SignalFeed({ isMonitoring }: SignalFeedProps) {
                       {Array.isArray(parsed.entryPrice)
                         ? parsed.entryPrice.join(', ')
                         : parsed.entryPrice}
+                      {parsed?.entryPrice2 ? (
+                        <span className="text-gray-400"> / {parsed.entryPrice2}</span>
+                      ) : null}
                     </div>
                   </div>
                 )}
@@ -133,6 +167,15 @@ export default function SignalFeed({ isMonitoring }: SignalFeedProps) {
                     </div>
                     <div className="font-semibold text-red-400">
                       {parsed.stopLoss}
+                    </div>
+                  </div>
+                )}
+
+                {parsed?.riskMultiplier != null && parsed.riskMultiplier < 1.0 && (
+                  <div>
+                    <div className="text-xs text-yellow-400 mb-1">Risk Multiplier</div>
+                    <div className="font-semibold text-yellow-300">
+                      {parsed.riskMultiplier}× (reduced)
                     </div>
                   </div>
                 )}
@@ -152,7 +195,34 @@ export default function SignalFeed({ isMonitoring }: SignalFeedProps) {
                     </div>
                   </div>
                 )}
+
+                {parsed?.update?.type && (
+                  <div className="col-span-2">
+                    <div className="text-xs text-gray-400 mb-1">Update Action</div>
+                    <div className="font-semibold text-blue-300">
+                      {parsed.update.type}
+                      {parsed.update.value != null && (
+                        <span className="text-gray-400 ml-2">
+                          value: {Array.isArray(parsed.update.value) ? parsed.update.value.join(', ') : parsed.update.value}
+                        </span>
+                      )}
+                      {parsed.update.percentage != null && (
+                        <span className="text-gray-400 ml-2">{parsed.update.percentage}%</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* LLM Reasoning */}
+              {parsed?.llmReasoning && (
+                <div className="p-4 bg-blue-950/30 border-t border-blue-900/40">
+                  <div className="text-xs text-blue-300 mb-1">🤖 LLM Interpretation</div>
+                  <div className="text-sm text-gray-300 italic">
+                    {parsed.llmReasoning}
+                  </div>
+                </div>
+              )}
 
               {/* Raw Message */}
               <div className="p-4 bg-gray-900/50 border-t border-gray-700">

@@ -43,6 +43,7 @@ export interface AdditionalKeywords {
 export interface ChannelAdvancedSettings {
   delayInMsec: number       // Delay before executing (stealth mode)
   entryRangeStrategy: 'first' | 'last' | 'middle'      // How to handle entry price ranges (e.g., "4326-4429")
+  splitEntryMode: boolean   // When true, "ENTRY: 4584.7/93.5" opens two separate orders instead of using range strategy
   slInPips: boolean         // SL given in pips vs price
   tpInPips: boolean         // TP given in pips vs price
   tpFormatMode: 'comma_separated' | 'separate_keywords'  // TP format: "TP: 5, 10" vs "TP1: 5, TP2: 10"
@@ -259,6 +260,7 @@ export const DEFAULT_CHANNEL_CONFIG: Omit<ChannelConfig, 'channelId' | 'channelN
   advancedSettings: {
     delayInMsec: 0,
     entryRangeStrategy: 'first',  // Default: use first price in range (e.g., 4326 from "4326-4429")
+    splitEntryMode: false,
     slInPips: false,
     tpInPips: false,
     tpFormatMode: 'separate_keywords',  // Default: TP1:, TP2:, TP3: format
@@ -283,7 +285,9 @@ export const DEFAULT_CHANNEL_CONFIG: Omit<ChannelConfig, 'channelId' | 'channelN
   },
 
   tradeFilters: {
-    ignoreWithoutSL: false,
+    // Safe default for NEW channels: never open a trade the provider didn't give a stop for.
+    // Existing saved configs are unaffected (defaults only apply when a config is first created).
+    ignoreWithoutSL: true,
     ignoreWithoutTP: false,
     forceMarketExecution: false,
     checkAlreadyOpenedOrder: false,

@@ -6,6 +6,7 @@ import { ParsedSignal } from './signalParser'
 import { ModificationCommand } from './tradeModificationHandler'
 import { ChannelConfig } from '../types/channelConfig'
 import { CloudSyncService } from './cloudSyncService'
+import { accountService } from './accountService'
 
 interface QueuedSignal {
   id: string
@@ -26,6 +27,20 @@ export class ApiServer {
   private modificationQueue: ModificationCommand[] = []
   private processedModifications: Set<string> = new Set()
   private signalIdMap: Map<string, { dbSignalId: number, channelId: number }> = new Map()
+  /** Last time each account's EA polled THIS local server (ms since epoch). Feeds the setup checklist. */
+  private lastPollByAccount: Map<string, number> = new Map()
+  /** Accounts we've already tried to auto-register this session (avoid a DB hit on every 2s poll). */
+  private autoRegisterChecked: Set<string> = new Set()
+
+  /** Snapshot for the UI: which EAs are polling locally and how recently. */
+  getEaStatus(): { accountNumber: string; lastPollMs: number; secondsAgo: number }[] {
+    const now = Date.now()
+    return Array.from(this.lastPollByAccount.entries()).map(([accountNumber, lastPollMs]) => ({
+      accountNumber,
+      lastPollMs,
+      secondsAgo: Math.round((now - lastPollMs) / 1000)
+    }))
+  }
   private cloudSyncService: CloudSyncService | null = null
 
   constructor(port: number = 3737) {
@@ -80,6 +95,25 @@ export class ApiServer {
       }
 
       logger.info(`EA ${accountNumber} polling for signals`)
+      this.lastPollByAccount.set(accountNumber, Date.now())
+
+      // Auto-register: the first time an EA polls with an account we don't know, add it.
+      // Removes the "add your account number in the app" onboarding step for local-mode users.
+      if (!this.autoRegisterChecked.has(accountNumber)) {
+        this.autoRegisterChecked.add(accountNumber)
+        try {
+          const platform = ((req.query.platform as string) || 'MT5').toUpperCase() === 'MT4' ? 'MT4' : 'MT5'
+          if (!accountService.getAccountByNumber(accountNumber, platform)) {
+            accountService.addAccount(platform, accountNumber, 'Auto-registered from EA')
+            logger.info(`🆕 Auto-registered trading account ${accountNumber} (${platform}) from first EA poll`)
+          }
+          // Mirror it to the website so the portal shows it and cloud-mode EAs receive signals too
+          this.cloudSyncService?.registerAccount(platform, accountNumber, 'Auto-registered from EA')
+            .catch((e: any) => logger.warn(`Cloud registration for ${accountNumber} failed: ${e.message}`))
+        } catch (e: any) {
+          logger.warn(`Auto-register for account ${accountNumber} skipped: ${e.message}`)
+        }
+      }
 
       if (this.signalQueue.length === 0) {
         return res.json({ signals: [] })
@@ -141,10 +175,11 @@ export class ApiServer {
 
       // If successful, store the ticket-to-signal mapping in database
       if (status === 'success' && message) {
-        // EA sends "ticket|entryPrice" in message field
+        // EA sends "ticket|entryPrice" or "ticket1,ticket2,...|entryPrice|status"
         const parts = message.split('|')
-        const ticketNumber = parts[0]
-        const actualEntryPrice = parts.length > 1 ? parseFloat(parts[1]) : 0
+        const ticketField = parts[0]                       // may contain comma-separated tickets
+        const primaryEntryPrice = parts.length > 1 ? parseFloat(parts[1]) : 0
+        const tickets = String(ticketField).split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0)
 
         try {
           // Look up the database signal ID using our mapping
@@ -171,15 +206,18 @@ export class ApiServer {
           let symbol = ''
           let direction = 'BUY' // Default
           let tradeStatus = 'open' // Default to open for market orders
+          let entry1 = primaryEntryPrice
+          let entry2 = 0
 
           if (signalResult.length > 0 && signalResult[0].values.length > 0) {
             try {
               const parsedData = JSON.parse(signalResult[0].values[0][0] as string)
               symbol = parsedData.symbol || ''
               direction = parsedData.direction || 'BUY'
+              entry1 = parsedData.entryPrice || primaryEntryPrice
+              entry2 = parsedData.entryPrice2 || 0
 
               // Check if it's a pending order (has entryPrice set)
-              // If entryPrice > 0, it's a pending order (EA will determine LIMIT vs STOP)
               if (parsedData.entryPrice && parsedData.entryPrice > 0) {
                 tradeStatus = 'pending'
               }
@@ -188,14 +226,23 @@ export class ApiServer {
             }
           }
 
-          // Store trade record with ticket number and ACTUAL entry price from EA
-          db.run(`
-            INSERT INTO trades (signal_id, channel_id, platform, account_number, ticket, symbol, direction, entry_price, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [dbSignalId, channelId, 'MT5', accountNumber, ticketNumber, symbol, direction, actualEntryPrice, tradeStatus])
+          // For split entry (entry2 > 0): tickets are ordered [E1 orders..., E2 orders...]
+          // Half the tickets should be tagged with entry1, half with entry2
+          const isSplitEntry = entry2 > 0 && tickets.length >= 2
+          const splitMidpoint = isSplitEntry ? tickets.length / 2 : tickets.length
+
+          for (let idx = 0; idx < tickets.length; idx++) {
+            const t = tickets[idx]
+            const thisEntry = (isSplitEntry && idx >= splitMidpoint) ? entry2 : entry1
+
+            db.run(`
+              INSERT INTO trades (signal_id, channel_id, platform, account_number, ticket, symbol, direction, entry_price, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [dbSignalId, channelId, 'MT5', accountNumber, t, symbol, direction, thisEntry, tradeStatus])
+          }
 
           saveDatabase()
-          logger.info(`✅ Stored trade mapping: Signal ${dbSignalId} (${signalId}) -> Ticket ${ticketNumber} @ ${actualEntryPrice}`)
+          logger.info(`✅ Stored ${tickets.length} trade mapping(s): Signal ${dbSignalId} (${signalId}) -> Tickets [${tickets.join(', ')}] (split=${isSplitEntry})`)
 
           // Clean up the mapping after successful storage
           this.signalIdMap.delete(signalId)

@@ -6,6 +6,24 @@ const glob = require('glob')
 
 console.log('🔨 Compiling Electron TypeScript files with esbuild...')
 
+// Bundle the customer EA binaries into assets/ea so the packaged app can install them
+// into the user's MT4/MT5 Experts folder (see ipc 'ea:install'). Source of truth stays mt4-mt5/.
+try {
+  const eaOut = path.join(__dirname, 'assets', 'ea')
+  fs.mkdirSync(eaOut, { recursive: true })
+  for (const f of ['TelegramSignalMirror.ex4', 'TelegramSignalMirror.ex5']) {
+    const src = path.join(__dirname, 'mt4-mt5', f)
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(eaOut, f))
+      console.log(`📦 Bundled ${f} → assets/ea/`)
+    } else {
+      console.warn(`⚠️  ${f} not found in mt4-mt5/ — EA installer will not offer it`)
+    }
+  }
+} catch (e) {
+  console.warn('⚠️  Could not bundle EA binaries:', e.message)
+}
+
 // Get all TypeScript files in electron directory
 const entryPoints = glob.sync('electron/**/*.ts', {
   ignore: ['electron/index.js', 'electron/preload.js']

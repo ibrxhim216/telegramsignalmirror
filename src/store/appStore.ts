@@ -11,9 +11,12 @@ interface Channel {
 interface Signal {
   id: number
   channelId: number
+  channelName?: string
   text: string
   parsed: any
   timestamp: string
+  signalType?: 'new' | 'update' | 'skipped' | 'modification' | string
+  skipReason?: string   // present when signalType === 'skipped'
 }
 
 interface AppState {

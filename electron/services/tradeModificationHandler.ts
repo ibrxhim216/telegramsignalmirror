@@ -15,6 +15,15 @@ export interface ModificationCommand {
 
 export class TradeModificationHandler extends EventEmitter {
   /**
+   * Record a dropped update so the UI can show WHY nothing happened.
+   * Emits 'updateSkipped' — main.ts forwards it to the signal feed as a muted card.
+   */
+  private skip(channelId: number, updateType: string, reason: string): void {
+    logger.warn(`Update skipped [${updateType}] channel ${channelId}: ${reason}`)
+    this.emit('updateSkipped', { channelId, updateType, reason, timestamp: new Date().toISOString() })
+  }
+
+  /**
    * Process an update signal
    */
   async processUpdate(
@@ -80,7 +89,12 @@ export class TradeModificationHandler extends EventEmitter {
           break
 
         case 'deletePending':
-          await this.deletePendingOrders(channelId, updateSignal.symbol, accountNumber, platform)
+          // If a target entry price was provided, only delete pending orders matching that price
+          if (typeof update.value === 'number') {
+            await this.deletePendingByEntry(channelId, update.value, accountNumber, platform)
+          } else {
+            await this.deletePendingOrders(channelId, updateSignal.symbol, accountNumber, platform)
+          }
           break
 
         case 'layer':
@@ -98,6 +112,14 @@ export class TradeModificationHandler extends EventEmitter {
 
         case 'removeSL':
           await this.removeSL(channelId, updateSignal.symbol, accountNumber, platform)
+          break
+
+        case 'closeByEntry':
+          if (typeof update.value === 'number') {
+            await this.closeByEntryPrice(channelId, update.value, accountNumber, platform)
+          } else {
+            logger.warn('closeByEntry: no target entry price in update.value')
+          }
           break
 
         default:
@@ -120,7 +142,7 @@ export class TradeModificationHandler extends EventEmitter {
     const trades = tradeManager.getTradesByChannel(channelId, accountNumber)
 
     if (trades.length === 0) {
-      logger.warn(`No active trades found for channel ${channelId}`)
+      this.skip(channelId, `closeTP${tpLevel}`, 'No active trades for this channel to close')
       return
     }
 
@@ -130,7 +152,7 @@ export class TradeModificationHandler extends EventEmitter {
     })
 
     if (tradesToClose.length === 0) {
-      logger.warn(`No trades with TP${tpLevel} found for channel ${channelId}`)
+      this.skip(channelId, `closeTP${tpLevel}`, `No open trades have a TP${tpLevel} level`)
       return
     }
 
@@ -167,7 +189,7 @@ export class TradeModificationHandler extends EventEmitter {
     }
 
     if (trades.length === 0) {
-      logger.warn(`No active trades found to close`)
+      this.skip(channelId, 'closeFull', 'No active trades for this channel to close')
       return
     }
 
@@ -205,7 +227,7 @@ export class TradeModificationHandler extends EventEmitter {
     }
 
     if (trades.length === 0) {
-      logger.warn(`No active trades found for partial close`)
+      this.skip(channelId, 'closePartial', 'No active trades for this channel to partially close')
       return
     }
 
@@ -242,7 +264,7 @@ export class TradeModificationHandler extends EventEmitter {
     }
 
     if (trades.length === 0) {
-      logger.warn(`No active trades found for breakeven`)
+      this.skip(channelId, 'breakEven', 'No active trades for this channel to move to breakeven')
       return
     }
 
@@ -269,12 +291,19 @@ export class TradeModificationHandler extends EventEmitter {
   private async updateTP(
     channelId: number,
     symbol: string | undefined,
-    newTPs: number[],
+    newTPs: number[] | number,
     accountNumber: string,
     platform: string
   ): Promise<void> {
-    if (!newTPs || newTPs.length === 0) {
-      logger.warn('No TP values provided for update')
+    if (newTPs === undefined || newTPs === null) {
+      this.skip(channelId, 'setTP', 'No take-profit value found in the message')
+      return
+    }
+
+    // Coerce to array for consistent handling
+    const tpArray = Array.isArray(newTPs) ? newTPs : [newTPs]
+    if (tpArray.length === 0) {
+      this.skip(channelId, 'setTP', 'No take-profit value found in the message')
       return
     }
 
@@ -288,18 +317,28 @@ export class TradeModificationHandler extends EventEmitter {
     }
 
     if (trades.length === 0) {
-      logger.warn(`No active trades found for TP update`)
+      logger.warn(`No active trades found locally for TP update`)
+
+      // Cloud-only fallback: emit a batch TP update so cloud maps TPs to tickets
+      logger.info(`Emitting cloud-only modification: modify_tp_batch with TPs ${JSON.stringify(tpArray)}`)
+      this.emit('cloudOnlyModification', {
+        type: 'modify_tp_batch',
+        signalId: null,
+        channelId,
+        newTPs: tpArray,
+        reason: `Update TPs to ${tpArray.join(', ')}`
+      })
       return
     }
 
-    logger.info(`Updating TP for ${trades.length} trade(s) to ${newTPs}`)
+    logger.info(`Updating TP for ${trades.length} trade(s) to ${tpArray}`)
 
     const command: ModificationCommand = {
       type: 'modify_tp',
       accountNumber,
       platform,
       trades,
-      newValue: newTPs,
+      newValue: tpArray,
       reason: 'Update TP'
     }
 
@@ -317,7 +356,7 @@ export class TradeModificationHandler extends EventEmitter {
     platform: string
   ): Promise<void> {
     if (!newSL) {
-      logger.warn('No SL value provided for update')
+      this.skip(channelId, 'setSL', 'No stop-loss value found in the message')
       return
     }
 
@@ -331,7 +370,7 @@ export class TradeModificationHandler extends EventEmitter {
     }
 
     if (trades.length === 0) {
-      logger.warn(`No active trades found for SL update`)
+      this.skip(channelId, 'setSL', 'No active trades for this channel to update SL on')
       return
     }
 
@@ -369,7 +408,7 @@ export class TradeModificationHandler extends EventEmitter {
     }
 
     if (trades.length === 0) {
-      logger.warn(`No pending orders found to delete`)
+      this.skip(channelId, 'deletePending', 'No pending orders for this channel to delete')
       return
     }
 
@@ -463,6 +502,109 @@ export class TradeModificationHandler extends EventEmitter {
   }
 
   /**
+   * Delete pending orders whose entry price is near a target price (within 2 points).
+   * Used for messages like "close only upper limit 4032" — only cancels matching pending orders.
+   */
+  private async deletePendingByEntry(
+    channelId: number,
+    targetPrice: number,
+    accountNumber: string,
+    platform: string
+  ): Promise<void> {
+    const allTrades = tradeManager.getTradesByChannel(channelId, accountNumber)
+        .filter(t => t.status === 'pending')
+
+    if (allTrades.length === 0) {
+      logger.warn(`deletePendingByEntry: no pending orders found locally for channel ${channelId}`)
+
+      // Cloud-only mode: emit a cloud modification with the target entry price
+      logger.info(`Emitting cloud-only modification: delete pending @ ~${targetPrice}`)
+      this.emit('cloudOnlyModification', {
+        type: 'delete',
+        signalId: null,
+        channelId,
+        targetEntryPrice: targetPrice,
+        reason: `Delete pending orders at ~${targetPrice}`
+      })
+      return
+    }
+
+    const tolerance = 2.0
+    const matchingTrades = allTrades.filter(trade =>
+      Math.abs(trade.entryPrice - targetPrice) < tolerance
+    )
+
+    if (matchingTrades.length === 0) {
+      logger.warn(`deletePendingByEntry: no pending orders with entry price near ${targetPrice} (tolerance ${tolerance}) found among ${allTrades.length} pending order(s)`)
+
+      // Fall back to cloud modification since local trades don't match
+      logger.info(`Emitting cloud-only modification: delete pending @ ~${targetPrice}`)
+      this.emit('cloudOnlyModification', {
+        type: 'delete',
+        signalId: null,
+        channelId,
+        targetEntryPrice: targetPrice,
+        reason: `Delete pending orders at ~${targetPrice}`
+      })
+      return
+    }
+
+    logger.info(`deletePendingByEntry: deleting ${matchingTrades.length} pending order(s) with entry near ${targetPrice}`)
+
+    const command: ModificationCommand = {
+      type: 'delete',
+      accountNumber,
+      platform,
+      trades: matchingTrades,
+      reason: `Delete pending orders at ~${targetPrice}`
+    }
+
+    this.emit('modificationCommand', command)
+  }
+
+  /**
+   * Close trades whose entry price is closest to a target price (within 2 points).
+   * Used for messages like "Close lower sell trade (4584.7) immediately."
+   */
+  private async closeByEntryPrice(
+    channelId: number,
+    targetPrice: number,
+    accountNumber: string,
+    platform: string
+  ): Promise<void> {
+    const allTrades = tradeManager.getTradesByChannel(channelId, accountNumber)
+
+    if (allTrades.length === 0) {
+      this.skip(channelId, 'closeByEntry', 'No active trades for this channel')
+      return
+    }
+
+    // Tolerance: within 2.0 price points of the target entry price
+    const tolerance = 2.0
+    const matchingTrades = allTrades.filter(trade =>
+      Math.abs(trade.entryPrice - targetPrice) < tolerance
+    )
+
+    if (matchingTrades.length === 0) {
+      this.skip(channelId, 'closeByEntry', `No trade with entry near ${targetPrice} (checked ${allTrades.length} open trade(s), tolerance ${tolerance})`)
+      return
+    }
+
+    logger.info(`closeByEntry: closing ${matchingTrades.length} trade(s) with entry near ${targetPrice}`)
+
+    const command: ModificationCommand = {
+      type: 'close',
+      accountNumber,
+      platform,
+      trades: matchingTrades,
+      percentage: 100,
+      reason: `Close by entry price ~${targetPrice}`
+    }
+
+    this.emit('modificationCommand', command)
+  }
+
+  /**
    * Remove stop loss from trades
    */
   private async removeSL(
@@ -481,7 +623,7 @@ export class TradeModificationHandler extends EventEmitter {
     }
 
     if (trades.length === 0) {
-      logger.warn(`No active trades found for SL removal`)
+      this.skip(channelId, 'removeSL', 'No active trades for this channel to remove SL from')
       return
     }
 

@@ -229,9 +229,19 @@ export default function AccountManager({ isOpen, onClose }: Props) {
                         onChange={(e) => setNewAccount({ ...newAccount, platform: e.target.value })}
                         className="w-full bg-gray-600 border border-gray-500 rounded px-3 py-2 text-sm text-white"
                       >
-                        <option value="MT4">MT4</option>
-                        <option value="MT5">MT5</option>
-                        <option value="cTrader">cTrader</option>
+                        <optgroup label="Desktop (EA required)">
+                          <option value="MT4">MT4</option>
+                          <option value="MT5">MT5</option>
+                        </optgroup>
+                        <optgroup label="Cloud mode (API)">
+                          <option value="oanda">OANDA</option>
+                          <option value="tradelocker">TradeLocker (coming soon)</option>
+                          <option value="ctrader">cTrader (coming soon)</option>
+                          <option value="matchtrader">Match-Trader (coming soon)</option>
+                          <option value="dxtrade">DXtrade (coming soon)</option>
+                          <option value="bybit">Bybit (coming soon)</option>
+                          <option value="ig">IG Markets (coming soon)</option>
+                        </optgroup>
                       </select>
                     </div>
 

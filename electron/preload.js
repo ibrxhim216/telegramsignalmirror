@@ -58,7 +58,28 @@ import_electron.contextBridge.exposeInMainWorld("electron", {
     exportConfig: (channelId) => import_electron.ipcRenderer.invoke("channelConfig:export", channelId),
     importConfig: (channelId, configJson) => import_electron.ipcRenderer.invoke("channelConfig:import", channelId, configJson),
     clearConfirmationRequirements: (channelId) => import_electron.ipcRenderer.invoke("channelConfig:clearConfirmationRequirements", channelId),
-    detectKeywords: (exampleSignal) => import_electron.ipcRenderer.invoke("channelConfig:detectKeywords", exampleSignal)
+    detectKeywords: (exampleSignal) => import_electron.ipcRenderer.invoke("channelConfig:detectKeywords", exampleSignal),
+    // Export recent channel history (text only) to a JSON file the user picks
+    exportHistory: (channelId, opts) => import_electron.ipcRenderer.invoke("channelConfig:exportHistory", channelId, opts),
+    // Pull recent history and ask the LLM to draft a channel configuration from it
+    analyzeHistory: (channelId, opts) => import_electron.ipcRenderer.invoke("channelConfig:analyzeHistory", channelId, opts)
+  },
+  // Build feature flags — renderer hides advanced-only UI (Split Entry, Auto-configure) when absent
+  app: {
+    getFeatures: () => import_electron.ipcRenderer.invoke("app:getFeatures")
+  },
+  // EA install / status helpers (setup checklist)
+  ea: {
+    // Find MT4/MT5 terminal data folders on this machine
+    detectTerminals: () => import_electron.ipcRenderer.invoke("ea:detectTerminals"),
+    // Copy the bundled EA into the given terminals' Experts folders
+    install: (terminalIds) => import_electron.ipcRenderer.invoke("ea:install", terminalIds),
+    // Which EAs are polling this app locally, plus registered accounts
+    status: () => import_electron.ipcRenderer.invoke("ea:status")
+  },
+  // Weekly health summary for the dashboard
+  stats: {
+    weekly: () => import_electron.ipcRenderer.invoke("stats:weekly")
   },
   // TSC Protector
   protector: {
@@ -91,6 +112,7 @@ import_electron.contextBridge.exposeInMainWorld("electron", {
     isLoggedIn: () => import_electron.ipcRenderer.invoke("license:isLoggedIn"),
     logout: () => import_electron.ipcRenderer.invoke("license:logout"),
     validateWithAPI: () => import_electron.ipcRenderer.invoke("license:validateWithAPI"),
+    forceRevalidate: () => import_electron.ipcRenderer.invoke("license:forceRevalidate"),
     // Event listeners (singleton pattern)
     onUpdated: (callback) => {
       return createSingletonListener("license:updated", callback, (_, license) => callback(license));
@@ -146,10 +168,39 @@ import_electron.contextBridge.exposeInMainWorld("electron", {
     delete: (id) => import_electron.ipcRenderer.invoke("account:delete", id),
     setActive: (id, isActive) => import_electron.ipcRenderer.invoke("account:setActive", id, isActive)
   },
+  // Cloud-mode Platforms
+  platforms: {
+    list: () => import_electron.ipcRenderer.invoke("platforms:list"),
+    testConnection: (platformId, creds) => import_electron.ipcRenderer.invoke("platforms:testConnection", platformId, creds)
+  },
   // Cloud Sync
   cloudSync: {
     onAccountError: (callback) => {
       return createSingletonListener("cloudSync:accountError", callback, (_, errorData) => callback(errorData));
     }
+  },
+  // Update Service
+  update: {
+    check: () => import_electron.ipcRenderer.invoke("update:check"),
+    download: (downloadUrl) => import_electron.ipcRenderer.invoke("update:download", downloadUrl),
+    getVersion: () => import_electron.ipcRenderer.invoke("update:getVersion"),
+    // Event listeners
+    onUpdateAvailable: (callback) => {
+      return createSingletonListener("update-available", callback, (_, updateInfo) => callback(updateInfo));
+    },
+    onUpdateNotAvailable: (callback) => {
+      return createSingletonListener("update-not-available", callback, (_, updateInfo) => callback(updateInfo));
+    }
+  },
+  // Helper for opening download URLs in browser
+  downloadUpdate: (url) => import_electron.ipcRenderer.invoke("update:download", url),
+  on: (channel, callback) => {
+    const validChannels = ["update-available", "update-not-available"];
+    if (validChannels.includes(channel)) {
+      import_electron.ipcRenderer.on(channel, (_, data) => callback(data));
+    }
+  },
+  off: (channel, callback) => {
+    import_electron.ipcRenderer.removeListener(channel, callback);
   }
 });

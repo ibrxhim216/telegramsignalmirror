@@ -43,10 +43,19 @@ contextBridge.exposeInMainWorld('electron', {
     stopMonitoring: () => ipcRenderer.invoke('telegram:stopMonitoring'),
     disconnect: () => ipcRenderer.invoke('telegram:disconnect'),
     isConnected: () => ipcRenderer.invoke('telegram:isConnected'),
+    sendPassword: (password: string) => ipcRenderer.invoke('telegram:sendPassword', password),
+    getSessionInfo: () => ipcRenderer.invoke('telegram:getSessionInfo'),
+    getMonitoringState: () => ipcRenderer.invoke('telegram:getMonitoringState'),
 
     // Event listeners (singleton pattern - only one listener per event)
     onCodeRequired: (callback: () => void) => {
       return createSingletonListener('telegram:codeRequired', callback)
+    },
+    onPasswordRequired: (callback: () => void) => {
+      return createSingletonListener('telegram:passwordRequired', callback)
+    },
+    onMonitoringState: (callback: (state: any) => void) => {
+      return createSingletonListener('telegram:monitoringState', callback, (_: any, state: any) => callback(state))
     },
     onConnected: (callback: () => void) => {
       return createSingletonListener('telegram:connected', callback)
@@ -76,6 +85,47 @@ contextBridge.exposeInMainWorld('electron', {
     importConfig: (channelId: number, configJson: string) => ipcRenderer.invoke('channelConfig:import', channelId, configJson),
     clearConfirmationRequirements: (channelId: number) => ipcRenderer.invoke('channelConfig:clearConfirmationRequirements', channelId),
     detectKeywords: (exampleSignal: string) => ipcRenderer.invoke('channelConfig:detectKeywords', exampleSignal),
+    // Export recent channel history (text only) to a JSON file the user picks
+    exportHistory: (channelId: number, opts?: { maxMessages?: number; maxAgeDays?: number; maxBytes?: number }) =>
+      ipcRenderer.invoke('channelConfig:exportHistory', channelId, opts),
+    // Pull recent history and ask the LLM to draft a channel configuration from it
+    analyzeHistory: (channelId: number, opts?: { maxMessages?: number; maxAgeDays?: number; maxBytes?: number }) =>
+      ipcRenderer.invoke('channelConfig:analyzeHistory', channelId, opts),
+  },
+
+  // Website helpers: open the portal already signed in, or start browser sign-in for this app
+  web: {
+    open: (path?: string) => ipcRenderer.invoke('web:open', path),
+    openDesktopSignIn: () => ipcRenderer.invoke('web:openDesktopSignIn'),
+  },
+
+  // Auth events from the main process (deep-link sign-in)
+  auth: {
+    onLoggedIn: (callback: () => void) => createSingletonListener('auth:loggedIn', callback),
+    onLoginFailed: (callback: (error: string) => void) =>
+      createSingletonListener('auth:loginFailed', callback, (_: any, error: string) => callback(error)),
+  },
+
+  // Build feature flags — renderer hides advanced-only UI (Split Entry, Auto-configure) when absent
+  app: {
+    getFeatures: () => ipcRenderer.invoke('app:getFeatures'),
+    getAutoLaunch: () => ipcRenderer.invoke('app:getAutoLaunch'),
+    setAutoLaunch: (enabled: boolean) => ipcRenderer.invoke('app:setAutoLaunch', enabled),
+  },
+
+  // EA install / status helpers (setup checklist)
+  ea: {
+    // Find MT4/MT5 terminal data folders on this machine
+    detectTerminals: () => ipcRenderer.invoke('ea:detectTerminals'),
+    // Copy the bundled EA into the given terminals' Experts folders
+    install: (terminalIds: string[]) => ipcRenderer.invoke('ea:install', terminalIds),
+    // Which EAs are polling this app locally, plus registered accounts
+    status: () => ipcRenderer.invoke('ea:status'),
+  },
+
+  // Weekly health summary for the dashboard
+  stats: {
+    weekly: () => ipcRenderer.invoke('stats:weekly'),
   },
 
   // TSC Protector
@@ -112,6 +162,7 @@ contextBridge.exposeInMainWorld('electron', {
     logout: () => ipcRenderer.invoke('license:logout'),
     validateWithAPI: () => ipcRenderer.invoke('license:validateWithAPI'),
     forceRevalidate: () => ipcRenderer.invoke('license:forceRevalidate'),
+    loginWithHandoffToken: (token: string) => ipcRenderer.invoke('license:loginWithHandoffToken', token),
 
     // Event listeners (singleton pattern)
     onUpdated: (callback: (license: any) => void) => {
@@ -173,6 +224,13 @@ contextBridge.exposeInMainWorld('electron', {
     setActive: (id: number, isActive: boolean) => ipcRenderer.invoke('account:setActive', id, isActive),
   },
 
+  // Cloud-mode Platforms
+  platforms: {
+    list: () => ipcRenderer.invoke('platforms:list'),
+    testConnection: (platformId: string, creds: any) =>
+      ipcRenderer.invoke('platforms:testConnection', platformId, creds),
+  },
+
   // Cloud Sync
   cloudSync: {
     onAccountError: (callback: (errorData: any) => void) => {
@@ -185,8 +243,16 @@ contextBridge.exposeInMainWorld('electron', {
     check: () => ipcRenderer.invoke('update:check'),
     download: (downloadUrl: string) => ipcRenderer.invoke('update:download', downloadUrl),
     getVersion: () => ipcRenderer.invoke('update:getVersion'),
+    getStatus: () => ipcRenderer.invoke('update:getStatus'),
+    install: () => ipcRenderer.invoke('update:install'),
 
     // Event listeners
+    onUpdateProgress: (callback: (progress: any) => void) => {
+      return createSingletonListener('update-progress', callback, (_: any, p: any) => callback(p))
+    },
+    onUpdateDownloaded: (callback: (updateInfo: any) => void) => {
+      return createSingletonListener('update-downloaded', callback, (_: any, info: any) => callback(info))
+    },
     onUpdateAvailable: (callback: (updateInfo: any) => void) => {
       return createSingletonListener('update-available', callback, (_: any, updateInfo: any) => callback(updateInfo))
     },
@@ -285,6 +351,10 @@ declare global {
         update: (id: number, data: any) => Promise<{ success: boolean; error?: string }>
         delete: (id: number) => Promise<{ success: boolean; error?: string }>
         setActive: (id: number, isActive: boolean) => Promise<{ success: boolean; error?: string }>
+      }
+      platforms: {
+        list: () => Promise<{ success: boolean; platforms?: any[]; error?: string }>
+        testConnection: (platformId: string, creds: any) => Promise<{ success: boolean; result?: any; error?: string }>
       }
       cloudSync: {
         onAccountError: (callback: (errorData: any) => void) => () => void

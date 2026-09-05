@@ -32,16 +32,21 @@ input ENUM_RISK_MODE RiskMode = RISK_FIXED;             // Risk Mode
 input double   FixedLotSize = 0.01;                     // Fixed Lot Size
 input double   RiskPercent = 2.0;                       // Risk % of Balance
 input double   RiskAmount = 100.0;                      // Risk $ Amount
-input double   RiskTP1 = 0.01;                          // Risk/Lot for TP1
-input double   RiskTP2 = 0.01;                          // Risk/Lot for TP2
-input double   RiskTP3 = 0.01;                          // Risk/Lot for TP3
-input double   RiskTP4 = 0.01;                          // Risk/Lot for TP4
-input double   RiskTP5 = 0.01;                          // Risk/Lot for TP5
-input double   RiskTP6 = 0.01;                          // Risk/Lot for TP6
-input double   RiskTP7 = 0.01;                          // Risk/Lot for TP7
-input double   RiskTP8 = 0.01;                          // Risk/Lot for TP8
-input double   RiskTP9 = 0.01;                          // Risk/Lot for TP9
-input double   RiskTP10 = 0.01;                         // Risk/Lot for TP10
+enum ENUM_RISK_APPLIES { RISK_TOTAL_POSITION, RISK_PER_TP_ORDER };
+input ENUM_RISK_APPLIES RiskAppliesTo = RISK_TOTAL_POSITION; // Risk Applies To (Total = split across TP orders; Per TP = each order gets full risk)
+
+// TP Selection - Enable/Disable Individual TPs (parity with MT5 EA)
+input group "========== TP SELECTION =========="
+input bool     EnableTP1 = true;                        // Enable TP1
+input bool     EnableTP2 = true;                        // Enable TP2
+input bool     EnableTP3 = true;                        // Enable TP3
+input bool     EnableTP4 = true;                        // Enable TP4
+input bool     EnableTP5 = true;                        // Enable TP5
+input bool     EnableTP6 = true;                        // Enable TP6
+input bool     EnableTP7 = true;                        // Enable TP7
+input bool     EnableTP8 = true;                        // Enable TP8
+input bool     EnableTP9 = true;                        // Enable TP9
+input bool     EnableTP10 = true;                       // Enable TP10
 
 // Hidden settings (not exposed to user)
 int      MaxSpread = 9000;                               // Maximum Spread in Points (hidden)
@@ -241,6 +246,14 @@ struct SymbolMapping
 bool isConnected = false;
 datetime lastPoll = 0;
 datetime lastModificationPoll = 0;
+
+// Track signal groups for TP filtering (cloud splits multi-TP signals into one signal per TP)
+struct SignalGroupInfo {
+   string groupId;
+   int signalCount;  // How many signals received in this group
+   datetime lastSeen;
+};
+SignalGroupInfo signalGroups[];
 datetime lastTimerRun = 0;
 string lastError = "";
 TradeInfo activeTrades[];     // Track all active trades for breakeven/trailing
@@ -322,6 +335,48 @@ void InitializeSymbolMappings()
 //+------------------------------------------------------------------+
 //| Expert initialization function                                    |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Get signal position in group (1st, 2nd, 3rd...) for TP filtering |
+//| Cloud splits multi-TP signals into separate signals sharing a     |
+//| signalGroupId; the Nth one we see maps to EnableTPN.              |
+//+------------------------------------------------------------------+
+int GetSignalGroupPosition(string groupId)
+{
+   if(groupId == "") return 1;  // No group ID = treat as first signal
+
+   datetime now = TimeCurrent();
+
+   // Clean up old groups (older than 5 minutes)
+   for(int i = ArraySize(signalGroups) - 1; i >= 0; i--)
+   {
+      if(now - signalGroups[i].lastSeen > 300)
+      {
+         for(int j = i; j < ArraySize(signalGroups) - 1; j++)
+            signalGroups[j] = signalGroups[j + 1];
+         ArrayResize(signalGroups, ArraySize(signalGroups) - 1);
+      }
+   }
+
+   // Find existing group
+   for(int i = 0; i < ArraySize(signalGroups); i++)
+   {
+      if(signalGroups[i].groupId == groupId)
+      {
+         signalGroups[i].signalCount++;
+         signalGroups[i].lastSeen = now;
+         return signalGroups[i].signalCount;
+      }
+   }
+
+   // New group
+   int size = ArraySize(signalGroups);
+   ArrayResize(signalGroups, size + 1);
+   signalGroups[size].groupId = groupId;
+   signalGroups[size].signalCount = 1;
+   signalGroups[size].lastSeen = now;
+   return 1;
+}
+
 int OnInit()
 {
    // Auto-detect account number from MT4
@@ -367,7 +422,10 @@ int OnInit()
    protectorLastReset = 0;
    CheckProtectorReset();
 
-   Print("⏱️  Timer will monitor trades every 2 seconds");
+   // Real timer so polling and trade management run even when the chart receives no ticks
+   // (weekends, illiquid symbols, market closed). OnTick still calls the same routine.
+   EventSetTimer(2);
+   Print("⏱️  Timer set to poll and monitor trades every 2 seconds (independent of ticks)");
    Print("EA initialized successfully - Waiting for signals...");
    return(INIT_SUCCEEDED);
 }
@@ -377,6 +435,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   EventKillTimer();
    Print("===========================================");
    Print("Telegram Signal Mirror EA shutting down");
    Print("Reason: ", reason);
@@ -388,20 +447,35 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Poll API server at defined interval
+   RunPeriodicTasks();
+}
+
+//+------------------------------------------------------------------+
+//| Timer function — fires every 2s regardless of ticks               |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+   RunPeriodicTasks();
+}
+
+//+------------------------------------------------------------------+
+//| Shared periodic work for OnTick and OnTimer. Every step is guarded |
+//| by its own timestamp, so being called from both never double-runs.|
+//+------------------------------------------------------------------+
+void RunPeriodicTasks()
+{
+   // Poll API server for new signals at defined interval
    if(TimeCurrent() - lastPoll >= PollInterval)
    {
       PollApiServer();
       lastPoll = TimeCurrent();
    }
 
-   // Simulate timer function (MT4 doesn't have OnTimer on all accounts)
-   // Run every 2 seconds
+   // Trade management + modification polling every 2 seconds
    if(TimeCurrent() - lastTimerRun >= 2)
    {
       MonitorActiveTrades();
 
-      // Poll for modification commands every 2 seconds
       if(TimeCurrent() - lastModificationPoll >= 2)
       {
          PollModifications();
@@ -791,6 +865,34 @@ void ProcessSignal(string signalJson)
    takeProfits[8] = StrToDouble(ExtractValue(signalJson, "takeProfit9"));
    takeProfits[9] = StrToDouble(ExtractValue(signalJson, "takeProfit10"));
 
+   // Extract signal group ID (if cloud is splitting multi-TP signals into one signal per TP).
+   // Track this signal's position in its group and honour the EnableTPn switches — parity with MT5 EA.
+   string signalGroupIdIn = ExtractValue(signalJson, "signalGroupId");
+   if(signalGroupIdIn != "")
+   {
+      int groupPosition = GetSignalGroupPosition(signalGroupIdIn);
+      bool groupTpEnabled = true;
+      if(groupPosition == 1) groupTpEnabled = EnableTP1;
+      else if(groupPosition == 2) groupTpEnabled = EnableTP2;
+      else if(groupPosition == 3) groupTpEnabled = EnableTP3;
+      else if(groupPosition == 4) groupTpEnabled = EnableTP4;
+      else if(groupPosition == 5) groupTpEnabled = EnableTP5;
+      else if(groupPosition == 6) groupTpEnabled = EnableTP6;
+      else if(groupPosition == 7) groupTpEnabled = EnableTP7;
+      else if(groupPosition == 8) groupTpEnabled = EnableTP8;
+      else if(groupPosition == 9) groupTpEnabled = EnableTP9;
+      else if(groupPosition == 10) groupTpEnabled = EnableTP10;
+      else groupTpEnabled = false;  // More than 10 signals in group, skip
+
+      if(!groupTpEnabled)
+      {
+         Print("🚫 Signal #", groupPosition, " in group filtered (EnableTP", groupPosition, "=OFF)");
+         AcknowledgeSignal(signalId, "skipped", "TP" + IntegerToString(groupPosition) + " disabled");
+         return;
+      }
+      Print("✅ Signal #", groupPosition, " in group (EnableTP", groupPosition, "=ON)");
+   }
+
    // Validate symbol
    if(symbol == "")
    {
@@ -1068,33 +1170,36 @@ void ProcessSignal(string signalJson)
    Print("Order Type: ", orderType == "" ? "MARKET" : orderType);
    Print("Base Direction: ", baseDirection);
 
-   // Prepare lot sizes for each TP
-   // If any LotPercentTP is set: distribute baseLot by weight across enabled TPs
-   // Otherwise fall back to the individual RiskTP1-10 values
+   // Calculate base lot size using Risk Mode (fixed / % of balance / $ amount) — parity with MT5 EA.
+   // Previously the MT4 EA ignored RiskMode and used FixedLotSize + per-TP RiskTP inputs.
+   double baseLot = CalculateLotSize(symbol, entryPrice, stopLoss, config);
+   Print("💰 Base lot size from Risk Mode: ", baseLot);
+
+   // Prepare lot sizes for each TP using EnableTP1-10 switches and optional lot weighting
    double lotWeights[10];
    lotWeights[0] = LotPercentTP1; lotWeights[1] = LotPercentTP2; lotWeights[2] = LotPercentTP3;
    lotWeights[3] = LotPercentTP4; lotWeights[4] = LotPercentTP5; lotWeights[5] = LotPercentTP6;
    lotWeights[6] = LotPercentTP7; lotWeights[7] = LotPercentTP8; lotWeights[8] = LotPercentTP9;
    lotWeights[9] = LotPercentTP10;
-   double riskLots[10];
-   riskLots[0] = RiskTP1; riskLots[1] = RiskTP2; riskLots[2] = RiskTP3;
-   riskLots[3] = RiskTP4; riskLots[4] = RiskTP5; riskLots[5] = RiskTP6;
-   riskLots[6] = RiskTP7; riskLots[7] = RiskTP8; riskLots[8] = RiskTP9;
-   riskLots[9] = RiskTP10;
+   bool tpEnabled[10];
+   tpEnabled[0] = EnableTP1; tpEnabled[1] = EnableTP2; tpEnabled[2] = EnableTP3;
+   tpEnabled[3] = EnableTP4; tpEnabled[4] = EnableTP5; tpEnabled[5] = EnableTP6;
+   tpEnabled[6] = EnableTP7; tpEnabled[7] = EnableTP8; tpEnabled[8] = EnableTP9;
+   tpEnabled[9] = EnableTP10;
    double lotSizes[10];
    for(int w = 0; w < 10; w++) lotSizes[w] = 0;
 
-   double baseLot = FixedLotSize;
+   // Check whether any weight is non-zero (weighted mode)
    double weightSum = 0;
    for(int w = 0; w < 10; w++)
-      if(takeProfits[w] != 0) weightSum += lotWeights[w];
+      if(tpEnabled[w]) weightSum += lotWeights[w];
 
    if(weightSum > 0)
    {
-      // Weighted mode: use FixedLotSize as the total, split by LotPercentTP weights
+      // Weighted mode: allocate baseLot proportionally (total = baseLot)
       for(int w = 0; w < 10; w++)
       {
-         if(takeProfits[w] == 0) { lotSizes[w] = 0; continue; }
+         if(!tpEnabled[w]) { lotSizes[w] = 0; continue; }
          double rawLot = NormalizeDouble(baseLot * lotWeights[w] / weightSum, 2);
          lotSizes[w] = (rawLot >= 0.01) ? rawLot : 0;
       }
@@ -1102,11 +1207,56 @@ void ProcessSignal(string signalJson)
    }
    else
    {
-      // Use individual RiskTP1-10 values directly
+      // Equal split across the TP orders that will actually be opened (enabled AND present in signal).
+      // RISK_TOTAL_POSITION (default): a full stop-out costs exactly the stated risk regardless of TP count.
+      // RISK_PER_TP_ORDER: every TP order gets the full base lot (N x risk).
+      // Fixed-lot mode is always per order ("0.01 fixed" means 0.01 per position).
+      int tpOrders = 0;
       for(int w = 0; w < 10; w++)
-         lotSizes[w] = riskLots[w];
-      Print("📊 RISKTP MODE: using individual RiskTP lot values");
+         if(tpEnabled[w] && takeProfits[w] != 0) tpOrders++;
+
+      bool divideAcrossTPs = (RiskAppliesTo == RISK_TOTAL_POSITION) && (config.riskMode != "fixed") && tpOrders > 1;
+
+      if(!divideAcrossTPs)
+      {
+         for(int w = 0; w < 10; w++)
+            lotSizes[w] = tpEnabled[w] ? baseLot : 0;
+         Print("📊 EQUAL LOT MODE (per order): each enabled TP gets ", baseLot, " lots");
+      }
+      else
+      {
+         double minLot  = MarketInfo(symbol, MODE_MINLOT);
+         double lotStep = MarketInfo(symbol, MODE_LOTSTEP);
+         if(lotStep <= 0) lotStep = 0.01;
+         if(minLot <= 0) minLot = 0.01;
+         double perOrder = NormalizeDouble(MathFloor((baseLot / tpOrders) / lotStep) * lotStep, 2);
+
+         if(perOrder >= minLot)
+         {
+            for(int w = 0; w < 10; w++)
+               lotSizes[w] = (tpEnabled[w] && takeProfits[w] != 0) ? perOrder : 0;
+            Print("📊 EQUAL SPLIT (total risk): base lot ", baseLot, " ÷ ", tpOrders, " TP orders = ", perOrder, " lots each");
+         }
+         else
+         {
+            // Budget too small for one min-lot order per TP: open as many as fit (from TP1 up) at min lot.
+            int affordable = (int)MathFloor(baseLot / minLot);
+            if(affordable < 1) affordable = 1;
+            int assigned = 0;
+            string dropped = "";
+            for(int w = 0; w < 10; w++)
+            {
+               if(!(tpEnabled[w] && takeProfits[w] != 0)) { lotSizes[w] = 0; continue; }
+               if(assigned < affordable) { lotSizes[w] = minLot; assigned++; }
+               else { lotSizes[w] = 0; dropped += (dropped == "" ? "" : ",") + "TP" + IntegerToString(w + 1); }
+            }
+            Print("⚠️  Risk budget (", baseLot, " lots) is below ", tpOrders, " x min lot ", minLot,
+                  " — opening ", assigned, " order(s) at ", minLot, " lots", (dropped != "" ? ", skipping " + dropped : ""));
+         }
+      }
    }
+
+   Print("📊 TP Selection: TP1=", (EnableTP1?"ON":"OFF"), " TP2=", (EnableTP2?"ON":"OFF"), " TP3=", (EnableTP3?"ON":"OFF"), " TP4=", (EnableTP4?"ON":"OFF"), " TP5=", (EnableTP5?"ON":"OFF"));
 
    // Count how many TPs we have
    int tpCount = 0;
@@ -1345,7 +1495,7 @@ double CalculateLotSize(string symbol, double entryPrice, double stopLoss, Signa
       else
       {
          lotSize = riskAmount / (stopLossPips * tickValue);
-         Print("💰 Risk calculation: RiskAmount=$", riskAmount, " SLPips=", stopLossPips, " TickValue=", tickValue, " LotSize=", lotSize);
+         Print("💰 Risk calculation: RiskAmount=", riskAmount, " ", AccountCurrency(), " SLPips=", stopLossPips, " TickValue=", tickValue, " LotSize=", lotSize);
       }
    }
 
@@ -2288,10 +2438,169 @@ void ProcessModification(string modJson)
       // Close all positions
       ApplyCloseAll(reason);
    }
+   else if(type == "close_tp1") { ApplyCloseAtTP(0, reason); }
+   else if(type == "close_tp2") { ApplyCloseAtTP(1, reason); }
+   else if(type == "close_tp3") { ApplyCloseAtTP(2, reason); }
+   else if(type == "close_tp4") { ApplyCloseAtTP(3, reason); }
+   else if(type == "set_tp1")
+   {
+      double newTP1 = StrToDouble(ExtractValue(modJson, "newValue"));
+      ApplySetTP(0, newTP1, reason);
+   }
+   else if(type == "remove_sl")
+   {
+      ApplyRemoveSL(reason);
+   }
    else
    {
       Print("⚠️  Unknown modification type: ", type);
    }
+}
+
+//+------------------------------------------------------------------+
+//| Close X% of every open position at a TP level (parity with MT5)   |
+//| Percentage comes from ClosePercentAtTPn; 0 = close 100%.          |
+//+------------------------------------------------------------------+
+void ApplyCloseAtTP(int tpLevel, string reason)
+{
+   int closedCount = 0;
+
+   double closePercent = 0;
+   if(tpLevel == 0) closePercent = ClosePercentAtTP1;
+   else if(tpLevel == 1) closePercent = ClosePercentAtTP2;
+   else if(tpLevel == 2) closePercent = ClosePercentAtTP3;
+   else if(tpLevel == 3) closePercent = ClosePercentAtTP4;
+   else if(tpLevel == 4) closePercent = ClosePercentAtTP5;
+   if(closePercent == 0) closePercent = 100;
+
+   Print("🎯 Closing ", closePercent, "% at TP", (tpLevel + 1), " level - ", reason);
+
+   // Iterate backwards: closing shifts order indices
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderMagicNumber() != MagicNumber || OrderType() > 1) continue; // open positions only
+
+      int ticket = OrderTicket();
+      double volume = OrderLots();
+
+      // Mark this TP level as hit on the tracked trade
+      for(int j = 0; j < ArraySize(activeTrades); j++)
+      {
+         if(activeTrades[j].ticket == ticket)
+         {
+            activeTrades[j].tpsHit |= (1 << tpLevel);
+            break;
+         }
+      }
+
+      double closeVolume = volume;
+      if(closePercent < 100)
+      {
+         double lotStep = MarketInfo(OrderSymbol(), MODE_LOTSTEP);
+         double minLot  = MarketInfo(OrderSymbol(), MODE_MINLOT);
+         if(lotStep <= 0) lotStep = 0.01;
+         closeVolume = NormalizeDouble(MathFloor((volume * closePercent / 100.0) / lotStep) * lotStep, 2);
+         if(closeVolume < minLot) { Print("⚠️  Partial volume below min lot for ticket ", ticket, " — skipping"); continue; }
+      }
+
+      double price = (OrderType() == OP_BUY) ? MarketInfo(OrderSymbol(), MODE_BID) : MarketInfo(OrderSymbol(), MODE_ASK);
+      if(OrderClose(ticket, closeVolume, price, Slippage, clrNONE))
+      {
+         if(closePercent >= 100) Print("✅ Closed full position at TP", (tpLevel + 1), ": Ticket ", ticket);
+         else Print("✅ Partial close at TP", (tpLevel + 1), ": ", closePercent, "% (", closeVolume, " lots) Ticket ", ticket);
+         closedCount++;
+      }
+      else
+      {
+         Print("❌ Failed to close ticket ", ticket, " at TP", (tpLevel + 1), " - Error: ", GetLastError());
+      }
+   }
+
+   if(closedCount > 0) Print("✅ TP", (tpLevel + 1), " close applied to ", closedCount, " position(s)");
+   else Print("⚠️  No positions found to close at TP", (tpLevel + 1));
+}
+
+//+------------------------------------------------------------------+
+//| Set a specific TP level on tracked trades (parity with MT5)        |
+//| Modifies the live order TP only if that level is the active one.  |
+//+------------------------------------------------------------------+
+void ApplySetTP(int tpLevel, double newTP, string reason)
+{
+   int modifiedCount = 0;
+   Print("🎯 Setting TP", (tpLevel + 1), " to ", newTP, " - ", reason);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderMagicNumber() != MagicNumber || OrderType() > 1) continue;
+
+      int ticket = OrderTicket();
+      double currentSL = OrderStopLoss();
+
+      for(int j = 0; j < ArraySize(activeTrades); j++)
+      {
+         if(activeTrades[j].ticket != ticket) continue;
+
+         activeTrades[j].takeProfits[tpLevel] = newTP;
+
+         // Active TP = first level not yet hit
+         bool isActiveTP = true;
+         for(int k = 0; k < tpLevel; k++)
+         {
+            if((activeTrades[j].tpsHit & (1 << k)) == 0) { isActiveTP = false; break; }
+         }
+
+         if(isActiveTP)
+         {
+            if(OrderModify(ticket, OrderOpenPrice(), currentSL, newTP, 0, clrNONE))
+            {
+               Print("✅ Modified TP", (tpLevel + 1), " to ", newTP, " for ticket ", ticket);
+               modifiedCount++;
+            }
+            else Print("❌ Failed to modify TP for ticket ", ticket, " - Error: ", GetLastError());
+         }
+         else
+         {
+            Print("📊 Updated TP", (tpLevel + 1), " in tracking for ticket ", ticket, " (not active yet)");
+            modifiedCount++;
+         }
+         break;
+      }
+   }
+
+   if(modifiedCount > 0) Print("✅ TP", (tpLevel + 1), " set for ", modifiedCount, " position(s)");
+   else Print("⚠️  No positions found to modify TP", (tpLevel + 1));
+}
+
+//+------------------------------------------------------------------+
+//| Remove stop loss from all open positions (parity with MT5)         |
+//+------------------------------------------------------------------+
+void ApplyRemoveSL(string reason)
+{
+   int modifiedCount = 0;
+   Print("🎯 Removing stop loss - ", reason);
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderMagicNumber() != MagicNumber || OrderType() > 1) continue;
+
+      int ticket = OrderTicket();
+      if(OrderModify(ticket, OrderOpenPrice(), 0, OrderTakeProfit(), 0, clrNONE))
+      {
+         Print("✅ Removed SL from ticket ", ticket, " - ", reason);
+         modifiedCount++;
+         for(int j = 0; j < ArraySize(activeTrades); j++)
+         {
+            if(activeTrades[j].ticket == ticket) { activeTrades[j].stopLoss = 0; break; }
+         }
+      }
+      else Print("❌ Failed to remove SL from ticket ", ticket, " - Error: ", GetLastError());
+   }
+
+   if(modifiedCount > 0) Print("✅ SL removed from ", modifiedCount, " position(s)");
+   else Print("⚠️  No positions found to remove SL");
 }
 
 //+------------------------------------------------------------------+

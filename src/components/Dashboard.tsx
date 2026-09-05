@@ -4,13 +4,30 @@ import ChannelList from './ChannelList'
 import SignalFeed from './SignalFeed'
 import Header from './Header'
 import LicenseStatus from './LicenseStatus'
+import SetupChecklist from './SetupChecklist'
 import { Activity } from 'lucide-react'
 
 export default function Dashboard() {
-  const { setChannels, addSignal, activeChannels } = useAppStore()
+  const { setChannels, addSignal, activeChannels, setActiveChannels } = useAppStore()
   const [isLoading, setIsLoading] = useState(true)
   const [isMonitoring, setIsMonitoring] = useState(false)
+  const [resumed, setResumed] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Monitoring state lives in the main process (it survives restarts). Mirror it here.
+  useEffect(() => {
+    const apply = (state: { isMonitoring: boolean; channelIds: number[]; resumeOnStart: boolean }) => {
+      setIsMonitoring(state.isMonitoring)
+      if (state.channelIds?.length) setActiveChannels(state.channelIds)
+      if (state.isMonitoring) setResumed(true)
+    }
+    window.electron.telegram.getMonitoringState?.().then((r) => {
+      if (r?.success) apply(r as any)
+    }).catch(() => {})
+    const off = window.electron.telegram.onMonitoringState?.(apply)
+    return () => { if (typeof off === 'function') off() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     // Add a small delay to ensure Telegram client is fully ready
@@ -72,7 +89,7 @@ export default function Dashboard() {
 
       if (result.success) {
         setIsMonitoring(true)
-        console.log('Started monitoring channels:', activeChannels)
+        setResumed(false)
       } else {
         setError(result.error || 'Failed to start monitoring')
         console.error('Failed to start monitoring:', result.error)
@@ -90,12 +107,22 @@ export default function Dashboard() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-900">
-      <Header />
+      <Header isMonitoring={isMonitoring} />
 
       {/* License Status Bar */}
       <div className="px-6 py-3 bg-gray-800/50 border-b border-gray-700">
         <LicenseStatus />
       </div>
+
+      {/* Setup checklist + 7-day health summary (collapses itself once everything is green) */}
+      <SetupChecklist isMonitoring={isMonitoring} />
+
+      {resumed && isMonitoring && (
+        <div className="mx-6 mt-3 bg-green-500/10 border border-green-500/30 text-green-300 px-4 py-2 rounded-lg text-sm flex items-center justify-between">
+          <span>Monitoring resumed automatically for {activeChannels.length} channel{activeChannels.length === 1 ? '' : 's'} from your last session.</span>
+          <button onClick={() => setResumed(false)} className="text-green-400 hover:text-green-200">×</button>
+        </div>
+      )}
 
       {/* Error Message */}
       {error && (
@@ -127,12 +154,7 @@ export default function Dashboard() {
 
             {!isMonitoring ? (
               <button
-                onClick={() => {
-                  console.log('Start Monitoring button clicked')
-                  console.log('Active channels:', activeChannels)
-                  console.log('Number of active channels:', activeChannels.length)
-                  handleStartMonitoring()
-                }}
+                onClick={handleStartMonitoring}
                 disabled={activeChannels.length === 0}
                 className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-2 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
               >
