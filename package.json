@@ -1,6 +1,6 @@
 {
   "name": "telegram-signal-mirror",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Desktop application that mirrors trading signals from Telegram to MT4/MT5/cTrader",
   "main": "electron/index.js",
   "scripts": {
@@ -113,7 +113,7 @@
       "!node_modules/clsx/**",
       "!node_modules/better-sqlite3/**",
       "!node_modules/wordnet-db/**",
-      "!node_modules/sql.js/dist/*asm*",
+      "!node_modules/sql.js/dist/sql-asm*",
       "!node_modules/sql.js/dist/*debug*",
       "!node_modules/sql.js/dist/*.zip",
       "!node_modules/sql.js/dist/worker*"
