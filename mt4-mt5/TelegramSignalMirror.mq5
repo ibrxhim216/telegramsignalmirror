@@ -68,9 +68,10 @@ input double   TpModificationPips = 0;                  // TP Modification Pips 
 // SL/TP Override
 input group "========== SL/TP OVERRIDE =========="
 enum ENUM_OVERRIDE_MODE { USE_SIGNAL, USE_PREDEFINED };
+enum ENUM_TP_MODE { TP_FROM_SIGNAL, TP_PREDEFINED_PIPS, TP_RR_RATIO }; // where take-profits come from
 input ENUM_OVERRIDE_MODE SlOverrideMode = USE_SIGNAL;   // SL Override Mode
 input double   PredefinedSL = 0;                        // Predefined SL in Pips (0=disabled)
-input ENUM_OVERRIDE_MODE TpOverrideMode = USE_SIGNAL;   // TP Override Mode
+input ENUM_TP_MODE  TpOverrideMode = TP_FROM_SIGNAL;      // TP Source: signal / predefined pips / RR ratio
 input double   PredefinedTP1 = 0;                       // Predefined TP1 in Pips
 input double   PredefinedTP2 = 0;                       // Predefined TP2 in Pips
 input double   PredefinedTP3 = 0;                       // Predefined TP3 in Pips
@@ -81,7 +82,6 @@ input double   PredefinedTP7 = 0;                       // Predefined TP7 in Pip
 input double   PredefinedTP8 = 0;                       // Predefined TP8 in Pips
 input double   PredefinedTP9 = 0;                       // Predefined TP9 in Pips
 input double   PredefinedTP10 = 0;                      // Predefined TP10 in Pips
-input bool     EnableRRMode = false;                    // Enable Risk:Reward Mode
 input double   RRRatioTP1 = 2.0;                        // RR Ratio for TP1 (TP1/SL)
 input double   RRRatioTP2 = 3.0;                        // RR Ratio for TP2 (TP2/SL)
 input double   RRRatioTP3 = 4.0;                        // RR Ratio for TP3 (TP3/SL)
@@ -101,13 +101,10 @@ input bool     ForceMarketExecution = false;            // Force Market Executio
 input bool     IgnoreWithoutSL = false;                 // Ignore Trades without SL
 input bool     IgnoreWithoutTP = false;                 // Ignore Trades without TP
 input bool     CheckAlreadyOpenedOrder = false;         // Check Already Opened Order with Same Pair
-input int      PipsTolerance = 7;                       // Pips Tolerance for Market Execution
 
 // Breakeven Settings
 input group "========== BREAKEVEN SETTINGS =========="
 input bool     EnableBreakeven = false;                 // Enable Breakeven
-enum ENUM_MOVE_SL_TYPE { ONLY_TO_ENTRY, ENTRY_PLUS_BUFFER };
-input ENUM_MOVE_SL_TYPE MoveSlToEntryType = ENTRY_PLUS_BUFFER; // Move SL to Entry Type
 input double   MoveSlAfterXPips = 0;                    // Move SL After X Pips Profit (0=disabled)
 input double   BreakevenPips = 0;                       // Breakeven Buffer Pips
 input bool     MoveSlAfterTPHit = false;                // Move SL to Breakeven after TP Hit
@@ -148,7 +145,6 @@ input double   TrailingDistancePips = 5;                // Trailing Distance fro
 
 // Notifications & Comments
 input group "========== NOTIFICATIONS & COMMENTS =========="
-input bool     OnComment = true;                        // Add Comment to Trades
 input string   CustomComment = "TSM Signal";            // Custom Comment
 input bool     SendMT5Notifications = true;             // Send MT5 Push Notifications
 
@@ -957,7 +953,7 @@ void ProcessSignal(string signalJson)
       Print("🔧 SL overridden: ", stopLoss, " (", PredefinedSL, " pips)");
    }
 
-   if(EnableRRMode && stopLoss != 0)
+   if(TpOverrideMode == TP_RR_RATIO && stopLoss != 0)
    {
       // Calculate TPs based on RR ratios
       bool isBuy = StringFind(direction, "BUY") >= 0;
@@ -974,7 +970,7 @@ void ProcessSignal(string signalJson)
       takeProfits[9] = entryPrice + (slDistance * RRRatioTP10 * (isBuy ? 1 : -1));
       Print("🎯 TPs calculated by RR mode");
    }
-   else if(TpOverrideMode == USE_PREDEFINED)
+   else if(TpOverrideMode == TP_PREDEFINED_PIPS)
    {
       // Use predefined TPs
       bool isBuy = StringFind(direction, "BUY") >= 0;
@@ -1133,7 +1129,7 @@ void ProcessSignal(string signalJson)
    Print("💰 Base lot size from Risk Mode: ", baseLotSize);
 
    // Prepare lot sizes for each TP using EnableTP1-10 switches and optional lot weighting
-   double lotSizes[10];
+   double lotSizes[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    double lotWeights[10] = {LotPercentTP1, LotPercentTP2, LotPercentTP3, LotPercentTP4, LotPercentTP5,
                              LotPercentTP6, LotPercentTP7, LotPercentTP8, LotPercentTP9, LotPercentTP10};
    bool   tpEnabled[10]  = {EnableTP1, EnableTP2, EnableTP3, EnableTP4, EnableTP5,

@@ -48,6 +48,11 @@ input bool     EnableTP8 = true;                        // Enable TP8
 input bool     EnableTP9 = true;                        // Enable TP9
 input bool     EnableTP10 = true;                       // Enable TP10
 
+// Split Entry Mode
+input group "========== SPLIT ENTRY MODE =========="
+input bool     EnableSplitEntry = false;                // Enable Split Entry Mode
+input string   SplitEntryInfo = "TP1=Market, TP2=Pending"; // Split Entry: TP1 @ market, TP2 @ signal entry
+
 // Hidden settings (not exposed to user)
 int      MaxSpread = 9000;                               // Maximum Spread in Points (hidden)
 int      Slippage = 9000;                                // Maximum Slippage in Points (hidden)
@@ -62,9 +67,10 @@ input double   TpModificationPips = 0;                  // TP Modification Pips 
 // SL/TP Override
 input group "========== SL/TP OVERRIDE =========="
 enum ENUM_OVERRIDE_MODE { USE_SIGNAL, USE_PREDEFINED };
+enum ENUM_TP_MODE { TP_FROM_SIGNAL, TP_PREDEFINED_PIPS, TP_RR_RATIO }; // where take-profits come from
 input ENUM_OVERRIDE_MODE SlOverrideMode = USE_SIGNAL;   // SL Override Mode
 input double   PredefinedSL = 0;                        // Predefined SL in Pips (0=disabled)
-input ENUM_OVERRIDE_MODE TpOverrideMode = USE_SIGNAL;   // TP Override Mode
+input ENUM_TP_MODE  TpOverrideMode = TP_FROM_SIGNAL;      // TP Source: signal / predefined pips / RR ratio
 input double   PredefinedTP1 = 0;                       // Predefined TP1 in Pips
 input double   PredefinedTP2 = 0;                       // Predefined TP2 in Pips
 input double   PredefinedTP3 = 0;                       // Predefined TP3 in Pips
@@ -75,7 +81,6 @@ input double   PredefinedTP7 = 0;                       // Predefined TP7 in Pip
 input double   PredefinedTP8 = 0;                       // Predefined TP8 in Pips
 input double   PredefinedTP9 = 0;                       // Predefined TP9 in Pips
 input double   PredefinedTP10 = 0;                      // Predefined TP10 in Pips
-input bool     EnableRRMode = false;                    // Enable Risk:Reward Mode
 input double   RRRatioTP1 = 2.0;                        // RR Ratio for TP1 (TP1/SL)
 input double   RRRatioTP2 = 3.0;                        // RR Ratio for TP2 (TP2/SL)
 input double   RRRatioTP3 = 4.0;                        // RR Ratio for TP3 (TP3/SL)
@@ -95,13 +100,10 @@ input bool     ForceMarketExecution = false;            // Force Market Executio
 input bool     IgnoreWithoutSL = false;                 // Ignore Trades without SL
 input bool     IgnoreWithoutTP = false;                 // Ignore Trades without TP
 input bool     CheckAlreadyOpenedOrder = false;         // Check Already Opened Order with Same Pair
-input int      PipsTolerance = 7;                       // Pips Tolerance for Market Execution
 
 // Breakeven Settings
 input group "========== BREAKEVEN SETTINGS =========="
 input bool     EnableBreakeven = false;                 // Enable Breakeven
-enum ENUM_MOVE_SL_TYPE { ONLY_TO_ENTRY, ENTRY_PLUS_BUFFER };
-input ENUM_MOVE_SL_TYPE MoveSlToEntryType = ENTRY_PLUS_BUFFER; // Move SL to Entry Type
 input double   MoveSlAfterXPips = 0;                    // Move SL After X Pips Profit (0=disabled)
 input double   BreakevenPips = 0;                       // Breakeven Buffer Pips
 input bool     MoveSlAfterTPHit = false;                // Move SL to Breakeven after TP Hit
@@ -142,7 +144,6 @@ input double   TrailingDistancePips = 5;                // Trailing Distance fro
 
 // Notifications & Comments
 input group "========== NOTIFICATIONS & COMMENTS =========="
-input bool     OnComment = true;                        // Add Comment to Trades
 input string   CustomComment = "TSM Signal";            // Custom Comment
 input bool     SendMT4Notifications = true;             // Send MT4 Push Notifications
 
@@ -1014,7 +1015,7 @@ void ProcessSignal(string signalJson)
       Print("🔧 SL overridden: ", stopLoss, " (", PredefinedSL, " pips)");
    }
 
-   if(EnableRRMode && stopLoss != 0)
+   if(TpOverrideMode == TP_RR_RATIO && stopLoss != 0)
    {
       // Calculate TPs based on RR ratios
       bool isBuy = StringFind(direction, "BUY") >= 0;
@@ -1024,9 +1025,14 @@ void ProcessSignal(string signalJson)
       takeProfits[2] = entryPrice + (slDistance * RRRatioTP3 * (isBuy ? 1 : -1));
       takeProfits[3] = entryPrice + (slDistance * RRRatioTP4 * (isBuy ? 1 : -1));
       takeProfits[4] = entryPrice + (slDistance * RRRatioTP5 * (isBuy ? 1 : -1));
+      takeProfits[5] = entryPrice + (slDistance * RRRatioTP6 * (isBuy ? 1 : -1));
+      takeProfits[6] = entryPrice + (slDistance * RRRatioTP7 * (isBuy ? 1 : -1));
+      takeProfits[7] = entryPrice + (slDistance * RRRatioTP8 * (isBuy ? 1 : -1));
+      takeProfits[8] = entryPrice + (slDistance * RRRatioTP9 * (isBuy ? 1 : -1));
+      takeProfits[9] = entryPrice + (slDistance * RRRatioTP10 * (isBuy ? 1 : -1));
       Print("🎯 TPs calculated by RR mode");
    }
-   else if(TpOverrideMode == USE_PREDEFINED)
+   else if(TpOverrideMode == TP_PREDEFINED_PIPS)
    {
       // Use predefined TPs
       bool isBuy = StringFind(direction, "BUY") >= 0;
@@ -1035,6 +1041,11 @@ void ProcessSignal(string signalJson)
       if(PredefinedTP3 > 0) takeProfits[2] = entryPrice + (PredefinedTP3 * pipValue * (isBuy ? 1 : -1));
       if(PredefinedTP4 > 0) takeProfits[3] = entryPrice + (PredefinedTP4 * pipValue * (isBuy ? 1 : -1));
       if(PredefinedTP5 > 0) takeProfits[4] = entryPrice + (PredefinedTP5 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP6 > 0) takeProfits[5] = entryPrice + (PredefinedTP6 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP7 > 0) takeProfits[6] = entryPrice + (PredefinedTP7 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP8 > 0) takeProfits[7] = entryPrice + (PredefinedTP8 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP9 > 0) takeProfits[8] = entryPrice + (PredefinedTP9 * pipValue * (isBuy ? 1 : -1));
+      if(PredefinedTP10 > 0) takeProfits[9] = entryPrice + (PredefinedTP10 * pipValue * (isBuy ? 1 : -1));
       Print("🔧 TPs overridden with predefined values");
    }
 
@@ -1186,7 +1197,7 @@ void ProcessSignal(string signalJson)
    tpEnabled[3] = EnableTP4; tpEnabled[4] = EnableTP5; tpEnabled[5] = EnableTP6;
    tpEnabled[6] = EnableTP7; tpEnabled[7] = EnableTP8; tpEnabled[8] = EnableTP9;
    tpEnabled[9] = EnableTP10;
-   double lotSizes[10];
+   double lotSizes[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    for(int w = 0; w < 10; w++) lotSizes[w] = 0;
 
    // Check whether any weight is non-zero (weighted mode)
@@ -1272,6 +1283,104 @@ void ProcessSignal(string signalJson)
    int tickets[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
    int successCount = 0;
 
+   // SPLIT ENTRY MODE: TP1 @ market, TP2 @ signal entry (pending)
+   if(EnableSplitEntry)
+   {
+      Print("🔀 SPLIT ENTRY MODE: Creating 2 positions - TP1 @ market, TP2 @ pending");
+
+      // Validate: Need TP1 and TP2 enabled and both TP values present
+      if(!EnableTP1 || !EnableTP2)
+      {
+         Print("⚠️  Split Entry Mode requires both EnableTP1 and EnableTP2 to be ON");
+         Print("❌ Skipping signal - please enable TP1 and TP2 or disable Split Entry Mode");
+         return;
+      }
+
+      if(takeProfits[0] == 0 || takeProfits[1] == 0)
+      {
+         Print("⚠️  Split Entry Mode requires signal to have both TP1 and TP2");
+         Print("❌ Skipping signal - this signal only has ", (takeProfits[0] != 0 ? "TP1" : "no TP1"), ", ", (takeProfits[1] != 0 ? "TP2" : "no TP2"));
+         return;
+      }
+
+      // Order 1: Market execution with TP1
+      Print("📈 Order 1: MARKET entry @ current price with TP1=", takeProfits[0]);
+      int ticket1 = 0;
+      int retries1 = 0;
+
+      while(ticket1 == 0 && retries1 < config.maxRetries)
+      {
+         if(baseDirection == "BUY")
+            ticket1 = ExecuteBuy(symbol, baseLot, stopLoss, takeProfits[0], config.customComment + " Market", config.slippage);
+         else
+            ticket1 = ExecuteSell(symbol, baseLot, stopLoss, takeProfits[0], config.customComment + " Market", config.slippage);
+
+         retries1++;
+         if(ticket1 == 0 && retries1 < config.maxRetries)
+         {
+            Print("⚠️  Market order failed, retrying... (", retries1, "/", config.maxRetries, ")");
+            Sleep(1000);
+         }
+      }
+
+      if(ticket1 > 0)
+      {
+         tickets[0] = ticket1;
+         successCount++;
+         Print("✅ Order 1 (Market) created: Ticket ", ticket1);
+      }
+      else
+      {
+         Print("❌ Failed to create market order after ", retries1, " retries");
+      }
+
+      // Order 2: Pending order at signal entry price with TP2
+      Print("📈 Order 2: PENDING entry @ ", entryPrice, " with TP2=", takeProfits[1]);
+      int ticket2 = 0;
+      int retries2 = 0;
+
+      while(ticket2 == 0 && retries2 < config.maxRetries)
+      {
+         if(baseDirection == "BUY")
+         {
+            if(orderType == "STOP")
+               ticket2 = ExecuteBuyStop(symbol, entryPrice, baseLot, stopLoss, takeProfits[1], config.customComment + " Pending", config.slippage);
+            else if(orderType == "LIMIT")
+               ticket2 = ExecuteBuyLimit(symbol, entryPrice, baseLot, stopLoss, takeProfits[1], config.customComment + " Pending", config.slippage);
+            else
+               ticket2 = ExecuteBuy(symbol, baseLot, stopLoss, takeProfits[1], config.customComment + " Pending", config.slippage);
+         }
+         else
+         {
+            if(orderType == "STOP")
+               ticket2 = ExecuteSellStop(symbol, entryPrice, baseLot, stopLoss, takeProfits[1], config.customComment + " Pending", config.slippage);
+            else if(orderType == "LIMIT")
+               ticket2 = ExecuteSellLimit(symbol, entryPrice, baseLot, stopLoss, takeProfits[1], config.customComment + " Pending", config.slippage);
+            else
+               ticket2 = ExecuteSell(symbol, baseLot, stopLoss, takeProfits[1], config.customComment + " Pending", config.slippage);
+         }
+
+         retries2++;
+         if(ticket2 == 0 && retries2 < config.maxRetries)
+         {
+            Print("⚠️  Pending order failed, retrying... (", retries2, "/", config.maxRetries, ")");
+            Sleep(1000);
+         }
+      }
+
+      if(ticket2 > 0)
+      {
+         tickets[1] = ticket2;
+         successCount++;
+         Print("✅ Order 2 (Pending) created: Ticket ", ticket2);
+      }
+      else
+      {
+         Print("❌ Failed to create pending order after ", retries2, " retries");
+      }
+   }
+   else
+   {
    // NO-TP FALLBACK: signal has no take profits — open one order with full lot and no TP
    if(tpCount == 0)
    {
@@ -1364,6 +1473,7 @@ void ProcessSignal(string signalJson)
          Print("❌ Failed to create order #", tpIdx+1, " after ", retries, " retries");
       }
    }
+   }  // End of else (normal mode)
 
    // Track all orders and send acknowledgment
    if(successCount > 0)
@@ -1997,12 +2107,12 @@ void MonitorActiveTrades()
             if(OrderSelect(activeTrades[i].ticket, SELECT_BY_TICKET) && OrderCloseTime() == 0)
             {
                double actualEntry = OrderOpenPrice();
-               double currentSL = OrderStopLoss();
+               double orderSL = OrderStopLoss();
                double newSL = actualEntry +
                   (activeTrades[i].config.breakevenPips * point * (isBuy ? 1 : -1));
 
                // Check if SL is already "close enough" (within 2 pips)
-               double slDifference = MathAbs(currentSL - newSL) / point;
+               double slDifference = MathAbs(orderSL - newSL) / point;
                if(slDifference < 2.0)
                {
                   Print("✅ SL already at breakeven for ticket ", activeTrades[i].ticket, " (within 2 pips)");
@@ -2011,11 +2121,11 @@ void MonitorActiveTrades()
                }
 
                // Detect manual SL changes (if SL changed but we didn't track it)
-               if(currentSL != activeTrades[i].stopLoss && activeTrades[i].breakevenRetries > 0)
+               if(orderSL != activeTrades[i].stopLoss && activeTrades[i].breakevenRetries > 0)
                {
                   Print("👤 User manually changed SL for ticket ", activeTrades[i].ticket, " - respecting manual control");
                   activeTrades[i].breakevenSet = true;
-                  activeTrades[i].stopLoss = currentSL;
+                  activeTrades[i].stopLoss = orderSL;
                   continue;
                }
 
