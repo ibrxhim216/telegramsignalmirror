@@ -90,7 +90,7 @@ actually observe in the messages. Prefer short, literal tokens exactly as the pr
 Return ONLY valid JSON with this shape:
 {
   "signalKeywords": {
-    "entryPoint": ["..."],     // words/labels that precede the entry price, e.g. "ENTRY", "@", "BUY LIMIT"
+    "entryPoint": ["..."],     // ONLY label words that mark where the entry price is, e.g. "ENTRY", "ENTRY PRICE", "@", "PRICE". Do NOT put direction words (BUY, SELL, BUY LIMIT, SELL NOW) here — those belong in buy/sell only.
     "buy": ["..."],            // e.g. "BUY", "BUY LIMIT", "BUY NOW", "LONG"
     "sell": ["..."],           // e.g. "SELL", "SELL LIMIT", "SHORT"
     "stopLoss": ["..."],       // e.g. "SL", "STOP LOSS", "STOP"
@@ -135,6 +135,8 @@ Rules:
   So NEVER emit a bare generic word like "close", "exit", "book", "sl", "tp" as a management keyword —
   use the distinguishing phrase instead ("close now", "close this trade", "close 50%", "book half").
 - Do not put the same phrase in more than one keyword list.
+- entryPoint holds only entry-LABEL words, never the direction words. If the provider marks entries only with "BUY"/"SELL" and no separate label, leave entryPoint empty.
+- Keep the close lists cleanly separated by intent: closeFull = close the WHOLE trade; closeHalf = close 50% / book half; closePartial = close ONE leg of a split entry or a specific portion (e.g. "close lower", "close upper"). A phrase that closes only part of a position must NOT appear in closeFull.
 - Copy example messages VERBATIM. Do not paraphrase or trim them.
 - If the provider uses abbreviated ranges like "4028/32" (meaning 4028 and 4032), say so in suggestions.
 - If entries are frequently posted without TPs and TPs arrive in a later message, say so in suggestions.
@@ -239,6 +241,16 @@ function sanitizeManagementKeywords(
   // closeFull must not be a substring of a more specific partial/half phrase
   const partialPhrases = [...(u.closeHalf || []), ...(u.closePartial || [])].map(norm)
   u.closeFull = (u.closeFull || []).filter(k => !partialPhrases.some(p => p !== norm(k) && p.includes(norm(k))))
+  // Safety net: a phrase that names a leg or portion ("lower", "upper", "half", "50%", "partial") closes
+  // part of a position, so it can never live in closeFull even if the model put it there. Move it to
+  // closePartial instead of dropping it, so the intent is preserved.
+  const PARTIAL_WORDS = ['lower', 'upper', 'half', '50%', 'partial', 'part of']
+  const isPartial = (k) => PARTIAL_WORDS.some(w => norm(k).includes(w))
+  const misfiled = (u.closeFull || []).filter(isPartial)
+  if (misfiled.length) {
+    u.closeFull = (u.closeFull || []).filter(k => !isPartial(k))
+    u.closePartial = Array.from(new Set([...(u.closePartial || []), ...misfiled]))
+  }
 
   return { update: u, additional: a }
 }

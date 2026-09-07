@@ -674,6 +674,15 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
                 </button>
                 <span className="w-px bg-gray-600 mx-1" />
                 <button
+                  onClick={handleAnalyzeHistory}
+                  disabled={exporting || analyzing}
+                  title="Read this channel's recent messages and fill in the keywords and format settings for you"
+                  className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded transition-colors font-medium"
+                >
+                  <Wand2 size={16} />
+                  {analyzing ? 'Reading channel…' : 'Auto-fill from channel'}
+                </button>
+                <button
                   onClick={handleExportHistory}
                   disabled={exporting || analyzing}
                   title="Save the channel's recent text messages (last 500 / 90 days / 2 MB) to a JSON file"
@@ -682,17 +691,6 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
                   <History size={16} />
                   {exporting ? 'Exporting…' : 'Export History'}
                 </button>
-                {features.advanced && (
-                <button
-                  onClick={handleAnalyzeHistory}
-                  disabled={exporting || analyzing}
-                  title="Read the channel's recent messages and draft keywords + format settings automatically"
-                  className="flex items-center gap-2 px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded transition-colors"
-                >
-                  <Wand2 size={16} />
-                  {analyzing ? 'Analyzing…' : 'Auto-configure'}
-                </button>
-                )}
               </div>
               <button
                 onClick={saveConfig}
@@ -850,7 +848,7 @@ export default function ChannelConfigDialog({ channelId, channelName, isOpen, is
                       </div>
                     )}
 
-                    {detectedKeywords.advancedSettings?.splitEntryMode && (
+                    {features.advanced && detectedKeywords.advancedSettings?.splitEntryMode && (
                       <div className="mt-4 pt-4 border-t border-gray-700 text-xs text-yellow-300">
                         This provider appears to post two entry levels per signal. Consider enabling <span className="font-semibold">Split Entry Mode</span> in Advanced Settings (not applied automatically).
                       </div>
