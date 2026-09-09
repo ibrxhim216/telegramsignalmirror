@@ -42,7 +42,12 @@ export default function SetupChecklist({ isMonitoring }: Props) {
       setTargetError(r.error || null)
     }).catch(() => {})
   }
-  useEffect(() => { loadTargeting() }, [])
+  // Website accounts can change at any time (added/removed in the portal): reload every minute and on the refresh icon.
+  useEffect(() => {
+    loadTargeting()
+    const t = setInterval(loadTargeting, 60000)
+    return () => clearInterval(t)
+  }, [])
   // Empty selection means "all accounts, including ones added later" and shows every box ticked.
   // Unticking one stores an explicit list; ticking everything again returns to "all".
   const allNumbers = webAccounts.map(a => a.accountNumber)
@@ -275,7 +280,7 @@ export default function SetupChecklist({ isMonitoring }: Props) {
           )}
           <span
             role="button"
-            onClick={(e) => { e.stopPropagation(); refresh() }}
+            onClick={(e) => { e.stopPropagation(); refresh(); loadTargeting() }}
             className="text-gray-500 hover:text-gray-300"
             title="Refresh"
           >
