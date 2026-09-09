@@ -106,11 +106,17 @@ export class EnhancedSignalParser {
 
       // Standard (rule-based) mode for all other channels
       const updateType = this.detectUpdateType(normalized, config)
-      if (updateType) {
+      // A "layer" is a new entry, not a management command, so a layer keyword must never swallow a
+      // full signal (e.g. "more" matching a footer line). Parse it as a new signal first; only fall back
+      // to the update if the message does not contain an actual trade.
+      if (updateType && updateType !== 'layer') {
         return this.parseUpdate(text, normalized, config, updateType)
       }
 
       let signal = this.parseNewSignal(text, normalized, config)
+      if (!signal && updateType === 'layer') {
+        return this.parseUpdate(text, normalized, config, updateType)
+      }
       if (!signal) {
         if (!this.lastSkipReason) this.lastSkipReason = 'Not recognized as a signal (no matching keywords)'
         return null
