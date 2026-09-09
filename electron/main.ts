@@ -110,8 +110,11 @@ function setSetting(key: string, value: string) {
 }
 
 const SETTING_MONITORED_CHANNELS = 'monitored_channels'
-/** '1' = this app's cloud pushes are routed only to the accounts registered in this app. */
-const SETTING_CLOUD_TARGET_LOCAL = 'cloud_target_local_accounts'
+/** JSON list of website account numbers this app's cloud pushes are routed to. Empty = all accounts. */
+const SETTING_CLOUD_TARGET_ACCOUNTS = 'cloud_target_accounts'
+function getTargetAccounts(): string[] {
+  try { const v = JSON.parse(getSetting(SETTING_CLOUD_TARGET_ACCOUNTS) || '[]'); return Array.isArray(v) ? v.map(String) : [] } catch { return [] }
+}
 const SETTING_MONITORING_ENABLED = 'monitoring_enabled'
 
 function rememberMonitoring(channelIds: number[], enabled: boolean) {
@@ -319,8 +322,8 @@ app.whenReady().then(async () => {
   // Opt-in routing: when enabled, signals and updates pushed by THIS app are delivered only to the
   // accounts listed in this app. Lets two apps (e.g. keyword parser vs AI parser) feed different accounts.
   cloudSync.setTargetAccountsProvider(() => {
-    if (getSetting(SETTING_CLOUD_TARGET_LOCAL) !== '1') return null
-    return accountService.getActiveAccounts().map(a => a.account_number)
+    const list = getTargetAccounts()
+    return list.length > 0 ? list : null
   })
 
   cloudSync.on('accountError', (errorData) => {
@@ -1587,14 +1590,29 @@ ipcMain.handle('multiTP:saveSettings', async (_, settings: any) => {
 })
 
 // Trading Account Handlers
+/** Website accounts + which of them this app's signals go to (empty selection = all). */
 ipcMain.handle('cloudSync:getTargeting', async () => {
-  return { success: true, enabled: getSetting(SETTING_CLOUD_TARGET_LOCAL) === '1' }
+  const selected = getTargetAccounts()
+  let webAccounts: { accountNumber: string; platform: string; accountName: string | null; isActive: boolean }[] = []
+  let error: string | undefined
+  try {
+    const token = licenseService.getAuthToken()
+    if (!token) throw new Error('Not signed in')
+    const res = await fetch(`${getWebBaseUrl()}/api/trading-accounts`, { headers: { Authorization: `Bearer ${token}` } })
+    const data: any = await res.json().catch(() => ({}))
+    if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`)
+    webAccounts = (data.accounts || []).map((a: any) => ({ accountNumber: String(a.accountNumber), platform: String(a.platform || ''), accountName: a.accountName ?? null, isActive: !!a.isActive }))
+  } catch (e: any) {
+    error = e.message
+  }
+  return { success: true, selected, webAccounts, error }
 })
 
-ipcMain.handle('cloudSync:setTargeting', async (_, enabled: boolean) => {
-  setSetting(SETTING_CLOUD_TARGET_LOCAL, enabled ? '1' : '0')
-  logger.info(`[Cloud Sync] Account targeting ${enabled ? 'ON (only accounts in this app)' : 'OFF (all accounts)'}`)
-  return { success: true, enabled }
+ipcMain.handle('cloudSync:setTargeting', async (_, accounts: string[]) => {
+  const list = Array.isArray(accounts) ? accounts.map(String).filter(Boolean) : []
+  setSetting(SETTING_CLOUD_TARGET_ACCOUNTS, JSON.stringify(list))
+  logger.info(`[Cloud Sync] Account targeting: ${list.length > 0 ? 'only ' + list.join(', ') : 'all accounts'}`)
+  return { success: true, selected: list }
 })
 
 ipcMain.handle('account:getAll', async () => {

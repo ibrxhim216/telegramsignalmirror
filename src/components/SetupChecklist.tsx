@@ -30,6 +30,24 @@ export default function SetupChecklist({ isMonitoring }: Props) {
   const [telegramOk, setTelegramOk] = useState<boolean | null>(null)
   const [configured, setConfigured] = useState<{ total: number; done: number }>({ total: 0, done: 0 })
   const [accounts, setAccounts] = useState<{ account_number: string; platform: string; is_active: number }[]>([])
+  // Routing: which website accounts THIS app's signals go to (none ticked = all of them).
+  const [webAccounts, setWebAccounts] = useState<{ accountNumber: string; platform: string; accountName: string | null; isActive: boolean }[]>([])
+  const [targets, setTargets] = useState<string[]>([])
+  const [targetError, setTargetError] = useState<string | null>(null)
+  const loadTargeting = () => {
+    window.electron.cloudSync?.getTargeting?.().then((r: any) => {
+      if (!r?.success) return
+      setWebAccounts(r.webAccounts || [])
+      setTargets(r.selected || [])
+      setTargetError(r.error || null)
+    }).catch(() => {})
+  }
+  useEffect(() => { loadTargeting() }, [])
+  const toggleTarget = async (accountNumber: string) => {
+    const next = targets.includes(accountNumber) ? targets.filter(a => a !== accountNumber) : [...targets, accountNumber]
+    setTargets(next)
+    await window.electron.cloudSync.setTargeting(next)
+  }
   const [polling, setPolling] = useState<{ accountNumber: string; secondsAgo: number }[]>([])
   const [terminals, setTerminals] = useState<Terminal[]>([])
   const [installing, setInstalling] = useState(false)
@@ -143,18 +161,35 @@ export default function SetupChecklist({ isMonitoring }: Props) {
     {
       key: 'account',
       label: 'Trading account registered',
-      state: accounts.some(a => a.is_active) ? 'ok' : 'todo',
+      state: (accounts.some(a => a.is_active) || webAccounts.some(a => a.isActive)) ? 'ok' : 'todo',
       detail: accounts.length > 0
         ? accounts.map(a => `${a.account_number} (${a.platform})`).join(', ')
-        : 'Appears automatically the first time your EA polls, or add it on the website',
-      action: accounts.length === 0 ? (
-        <button
-          onClick={() => window.electron.web?.open('/dashboard/trading-accounts')}
-          className="text-xs text-gray-400 hover:text-gray-200 underline"
-        >
-          Add on website
-        </button>
-      ) : undefined,
+        : webAccounts.length > 0
+          ? `${webAccounts.length} account(s) on your website profile`
+          : 'Appears automatically the first time your EA polls, or add it on the website',
+      action: (
+        <div className="space-y-1">
+          {webAccounts.length > 0 ? (
+            <>
+              <div className="text-[11px] uppercase tracking-wide text-gray-500">This app sends signals to</div>
+              {webAccounts.map(a => (
+                <label key={a.accountNumber} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer" title="Tick the accounts this copy of the app should feed. None ticked = all of your accounts.">
+                  <input type="checkbox" checked={targets.includes(a.accountNumber)} onChange={() => toggleTarget(a.accountNumber)} />
+                  <span>{a.accountNumber} <span className="text-gray-500">({a.platform}{a.accountName ? ` · ${a.accountName}` : ''}{a.isActive ? '' : ' · inactive'})</span></span>
+                </label>
+              ))}
+              <div className="text-[11px] text-gray-500">{targets.length === 0 ? 'None ticked: every account on your website profile receives them.' : `Only the ${targets.length} ticked account(s) receive this app’s signals.`}</div>
+            </>
+          ) : (
+            <button
+              onClick={() => window.electron.web?.open('/dashboard/trading-accounts')}
+              className="text-xs text-gray-400 hover:text-gray-200 underline"
+            >
+              {targetError ? `Could not load website accounts (${targetError}) — open website` : 'Add on website'}
+            </button>
+          )}
+        </div>
+      ),
     },
     {
       key: 'ea',
