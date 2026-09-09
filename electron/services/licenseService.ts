@@ -750,6 +750,16 @@ export class LicenseService extends EventEmitter {
     this.saveLicense(this.currentLicense)
   }
 
+  /** Sync the account counter to what the website reports (accounts are usually registered there). */
+  setAccountCount(n: number) {
+    if (!this.currentLicense) return
+    const next = Math.max(0, Math.floor(n))
+    if (this.currentLicense.currentAccounts === next) return
+    this.currentLicense.currentAccounts = next
+    this.saveLicense(this.currentLicense)
+    this.emit('licenseUpdated', this.currentLicense)
+  }
+
   /**
    * Decrement account count
    */

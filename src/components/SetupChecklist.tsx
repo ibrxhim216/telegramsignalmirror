@@ -43,8 +43,14 @@ export default function SetupChecklist({ isMonitoring }: Props) {
     }).catch(() => {})
   }
   useEffect(() => { loadTargeting() }, [])
+  // Empty selection means "all accounts, including ones added later" and shows every box ticked.
+  // Unticking one stores an explicit list; ticking everything again returns to "all".
+  const allNumbers = webAccounts.map(a => a.accountNumber)
+  const isTicked = (n: string) => targets.length === 0 || targets.includes(n)
   const toggleTarget = async (accountNumber: string) => {
-    const next = targets.includes(accountNumber) ? targets.filter(a => a !== accountNumber) : [...targets, accountNumber]
+    const current = targets.length === 0 ? allNumbers : targets
+    let next = current.includes(accountNumber) ? current.filter(a => a !== accountNumber) : [...current, accountNumber]
+    if (allNumbers.every(n => next.includes(n))) next = []
     setTargets(next)
     await window.electron.cloudSync.setTargeting(next)
   }
@@ -173,12 +179,12 @@ export default function SetupChecklist({ isMonitoring }: Props) {
             <>
               <div className="text-[11px] uppercase tracking-wide text-gray-500">This app sends signals to</div>
               {webAccounts.map(a => (
-                <label key={a.accountNumber} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer" title="Tick the accounts this copy of the app should feed. None ticked = all of your accounts.">
-                  <input type="checkbox" checked={targets.includes(a.accountNumber)} onChange={() => toggleTarget(a.accountNumber)} />
+                <label key={a.accountNumber} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer" title="Untick an account to stop this copy of the app sending to it.">
+                  <input type="checkbox" checked={isTicked(a.accountNumber)} onChange={() => toggleTarget(a.accountNumber)} />
                   <span>{a.accountNumber} <span className="text-gray-500">({a.platform}{a.accountName ? ` · ${a.accountName}` : ''}{a.isActive ? '' : ' · inactive'})</span></span>
                 </label>
               ))}
-              <div className="text-[11px] text-gray-500">{targets.length === 0 ? 'None ticked: every account on your website profile receives them.' : `Only the ${targets.length} ticked account(s) receive this app’s signals.`}</div>
+              <div className="text-[11px] text-gray-500">{targets.length === 0 ? 'All accounts receive this app’s signals, including any you add later. Untick one to leave it out.' : `Only the ${targets.length} ticked account(s) receive this app’s signals.`}</div>
             </>
           ) : (
             <button

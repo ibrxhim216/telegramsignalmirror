@@ -1602,6 +1602,8 @@ ipcMain.handle('cloudSync:getTargeting', async () => {
     const data: any = await res.json().catch(() => ({}))
     if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`)
     webAccounts = (data.accounts || []).map((a: any) => ({ accountNumber: String(a.accountNumber), platform: String(a.platform || ''), accountName: a.accountName ?? null, isActive: !!a.isActive }))
+    // The header's N/M counter only knew about accounts registered through this app; the website is the truth.
+    licenseService.setAccountCount(Math.max(webAccounts.length, accountService.getAccounts().length))
   } catch (e: any) {
     error = e.message
   }
