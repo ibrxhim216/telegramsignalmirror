@@ -118,6 +118,8 @@ declare global {
       }
       cloudSync: {
         onAccountError: (callback: (errorData: { accountNumber: string; message: string; action: string }) => void) => void
+        getTargeting: () => Promise<{ success: boolean; enabled: boolean }>
+        setTargeting: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>
       }
     }
   }

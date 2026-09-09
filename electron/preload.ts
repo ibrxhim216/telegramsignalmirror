@@ -236,6 +236,8 @@ contextBridge.exposeInMainWorld('electron', {
     onAccountError: (callback: (errorData: any) => void) => {
       return createSingletonListener('cloudSync:accountError', callback, (_: any, errorData: any) => callback(errorData))
     },
+    getTargeting: () => ipcRenderer.invoke('cloudSync:getTargeting'),
+    setTargeting: (enabled: boolean) => ipcRenderer.invoke('cloudSync:setTargeting', enabled),
   },
 
   // Update Service
@@ -358,6 +360,8 @@ declare global {
       }
       cloudSync: {
         onAccountError: (callback: (errorData: any) => void) => () => void
+        getTargeting: () => Promise<{ success: boolean; enabled: boolean }>
+        setTargeting: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>
       }
       update: {
         check: () => Promise<{ success: boolean; updateInfo?: any; error?: string }>

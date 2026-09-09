@@ -11,6 +11,8 @@ export interface CloudSyncConfig {
 
 export class CloudSyncService extends EventEmitter {
   private config: CloudSyncConfig
+  /** When set, pushes carry the account numbers this app's signals are for (opt-in routing). */
+  private targetAccountsProvider: (() => string[] | null) | null = null
   private syncInterval: NodeJS.Timeout | null = null
 
   constructor(config: CloudSyncConfig) {
@@ -28,6 +30,17 @@ export class CloudSyncService extends EventEmitter {
   /**
    * Set authentication token for cloud API
    */
+  setTargetAccountsProvider(fn: (() => string[] | null) | null) {
+    this.targetAccountsProvider = fn
+  }
+
+  private targetAccounts(): string[] | null {
+    try {
+      const list = this.targetAccountsProvider ? this.targetAccountsProvider() : null
+      return list && list.length > 0 ? list : null
+    } catch { return null }
+  }
+
   setAuthToken(token: string) {
     this.config.authToken = token
     logger.info('[Cloud Sync] Auth token updated')
@@ -218,7 +231,8 @@ export class CloudSyncService extends EventEmitter {
         channelName: channelName || null,
         signalText: signal.rawText || null,
         telegramMessageId: telegramMessageId || null,
-        signalGroupId: signalGroupId || null  // Link multi-TP signals together
+        signalGroupId: signalGroupId || null,  // Link multi-TP signals together
+        accountNumbers: this.targetAccounts()  // null = all of the user's accounts (default)
       }
 
       logger.info(`[Cloud Sync] Pushing signal to ${this.config.apiUrl}/api/signals`)
@@ -314,6 +328,7 @@ export class CloudSyncService extends EventEmitter {
         type: eaType,
         signalId: modification.signalId?.toString() || null,
         channelId: modification.channelId?.toString() || null,
+        accountNumbers: this.targetAccounts(),
         channelName: modification.channelName || null,
         rawText: modification.rawText || null,
         messageId: modification.messageId?.toString() || null,

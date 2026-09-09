@@ -20,6 +20,7 @@ export default function AccountManager({ isOpen, onClose }: Props) {
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
   const [licenseInfo, setLicenseInfo] = useState<{maxAccounts: number, currentAccounts: number} | null>(null)
+  const [targetLocal, setTargetLocal] = useState(false)
   const [newAccount, setNewAccount] = useState({
     platform: 'MT5',
     accountNumber: '',
@@ -30,6 +31,7 @@ export default function AccountManager({ isOpen, onClose }: Props) {
     if (isOpen) {
       loadAccounts()
       loadLicenseInfo()
+      window.electron.cloudSync.getTargeting().then((r) => { if (r?.success) setTargetLocal(!!r.enabled) }).catch(() => {})
     }
   }, [isOpen])
 
@@ -207,6 +209,24 @@ export default function AccountManager({ isOpen, onClose }: Props) {
                   ))
                 )}
               </div>
+
+              {/* Routing: only the accounts in this app receive this app's signals */}
+              <label className="mb-4 flex items-start gap-3 rounded-lg border border-gray-600 bg-gray-700/40 p-3 text-sm text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={targetLocal}
+                  onChange={async (e) => {
+                    const on = e.target.checked
+                    setTargetLocal(on)
+                    await window.electron.cloudSync.setTargeting(on)
+                  }}
+                />
+                <span>
+                  <span className="font-medium text-white">Send this app’s signals only to the accounts listed here</span>
+                  <span className="mt-0.5 block text-xs text-gray-400">Off: every account on your website profile receives them. Turn on when you run more than one copy of the app for different accounts.</span>
+                </span>
+              </label>
 
               {/* License Info */}
               {licenseInfo && licenseInfo.maxAccounts !== -1 && (

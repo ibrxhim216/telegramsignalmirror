@@ -110,6 +110,8 @@ function setSetting(key: string, value: string) {
 }
 
 const SETTING_MONITORED_CHANNELS = 'monitored_channels'
+/** '1' = this app's cloud pushes are routed only to the accounts registered in this app. */
+const SETTING_CLOUD_TARGET_LOCAL = 'cloud_target_local_accounts'
 const SETTING_MONITORING_ENABLED = 'monitoring_enabled'
 
 function rememberMonitoring(channelIds: number[], enabled: boolean) {
@@ -313,6 +315,13 @@ app.whenReady().then(async () => {
 
   // Configure API server with cloud sync
   apiServer.setCloudSyncService(cloudSync)
+
+  // Opt-in routing: when enabled, signals and updates pushed by THIS app are delivered only to the
+  // accounts listed in this app. Lets two apps (e.g. keyword parser vs AI parser) feed different accounts.
+  cloudSync.setTargetAccountsProvider(() => {
+    if (getSetting(SETTING_CLOUD_TARGET_LOCAL) !== '1') return null
+    return accountService.getActiveAccounts().map(a => a.account_number)
+  })
 
   cloudSync.on('accountError', (errorData) => {
     logger.warn(`[Cloud Sync] Account ${errorData.accountNumber}: ${errorData.message}`)
@@ -1101,27 +1110,43 @@ ipcMain.handle('channelConfig:exportHistory', async (_, channelId: number, opts?
 // Pull recent history and ask the LLM (one call) to draft a channel configuration.
 ipcMain.handle('channelConfig:analyzeHistory', async (_, channelId: number, opts?: { maxMessages?: number; maxAgeDays?: number; maxBytes?: number }) => {
   try {
-    // Uses the Anthropic API — advanced (personal) build only. Customer builds never reach this.
-    const { isAdvancedBuild } = await import('./utils/features')
-    if (!isAdvancedBuild()) {
-      return { success: false, error: 'Auto-configure is not available in this build' }
-    }
     if (!telegramService?.isConnected()) {
       return { success: false, error: 'Telegram is not connected' }
     }
+    // The app reads the channel's recent TEXT messages (media excluded, capped to 500 / 90 days / 2 MB).
     const messages = await telegramService.getChannelHistory(channelId, opts)
     if (messages.length === 0) {
       return { success: false, error: 'No text messages found in the selected window' }
     }
-
-    const { analyzeChannelHistory } = await import('./services/channelHistoryAnalyzer')
     const config = channelConfigService.getConfig(channelId)
-    const analysis = await analyzeChannelHistory(messages, {
-      channelName: config?.channelName,
-      log: (m) => logger.info(`[History Analyzer] ${m}`)
+
+    // Advanced (personal) build: analyze locally with the bundled Anthropic key.
+    const { isAdvancedBuild } = await import('./utils/features')
+    if (isAdvancedBuild()) {
+      const { analyzeChannelHistory } = await import('./services/channelHistoryAnalyzer')
+      const analysis = await analyzeChannelHistory(messages, {
+        channelName: config?.channelName,
+        log: (m) => logger.info(`[History Analyzer] ${m}`),
+      })
+      logger.info(`History analysis (local) for channel ${channelId}: confidence=${analysis.confidence}`)
+      return { success: true, analysis }
+    }
+
+    // Customer build: no key ships in the app, so the analysis runs on the website with the account's token.
+    if (!licenseService.isLoggedIn()) {
+      return { success: false, error: 'Sign in to your account to use auto-fill.' }
+    }
+    const res = await fetch(`${getWebBaseUrl()}/api/keywords/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${licenseService.getAuthToken()}` },
+      body: JSON.stringify({ messages, channelName: config?.channelName }),
     })
-    logger.info(`History analysis complete for channel ${channelId}: confidence=${analysis.confidence} signals≈${analysis.stats.estimatedSignals}`)
-    return { success: true, analysis }
+    const data: any = await res.json().catch(() => ({}))
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || 'Could not read the channel history. Try again, or set the keywords by hand.' }
+    }
+    logger.info(`History analysis (server) for channel ${channelId}: confidence=${data.analysis?.confidence}`)
+    return { success: true, analysis: data.analysis }
   } catch (error: any) {
     logger.error('Analyze history error:', error)
     return { success: false, error: error.message }
@@ -1562,6 +1587,16 @@ ipcMain.handle('multiTP:saveSettings', async (_, settings: any) => {
 })
 
 // Trading Account Handlers
+ipcMain.handle('cloudSync:getTargeting', async () => {
+  return { success: true, enabled: getSetting(SETTING_CLOUD_TARGET_LOCAL) === '1' }
+})
+
+ipcMain.handle('cloudSync:setTargeting', async (_, enabled: boolean) => {
+  setSetting(SETTING_CLOUD_TARGET_LOCAL, enabled ? '1' : '0')
+  logger.info(`[Cloud Sync] Account targeting ${enabled ? 'ON (only accounts in this app)' : 'OFF (all accounts)'}`)
+  return { success: true, enabled }
+})
+
 ipcMain.handle('account:getAll', async () => {
   try {
     const accounts = accountService.getAccounts()
